@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 196 40" width="588" height="120" role="img" aria-label="RTConnect">
+  <style>.ink{stroke:#102A43;fill:#102A43}.ink-s{stroke:#102A43;fill:none}.ink-f{fill:#102A43}@media (prefers-color-scheme: dark){.ink-s{stroke:#E6EDF3}.ink-f{fill:#E6EDF3}}</style>
+  <g transform="translate(0,1)">
+  <g class="ink-s" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M4 18 L20 4 L36 18"/>
+    <path d="M28 10.5 V5.5 H32 V14"/>
+    <path d="M9 15 V33 H31 V15"/>
+  </g>
+  <g fill="#1F6FEB">
+    <rect x="15.6" y="12" width="4" height="4" rx="0.6"/>
+    <rect x="20.4" y="12" width="4" height="4" rx="0.6"/>
+    <rect x="15.6" y="16.8" width="4" height="4" rx="0.6"/>
+    <rect x="20.4" y="16.8" width="4" height="4" rx="0.6"/>
+  </g>
+  <path d="M16 33 V27 A4 4 0 0 1 24 27 V33 Z" class="ink-f"/>
+  </g>
+  <text x="46" y="29" font-family="'Plus Jakarta Sans','Inter','Segoe UI',Helvetica,Arial,sans-serif" font-size="24" font-weight="700" class="ink-f" letter-spacing="-0.3">RTConnect</text>
+</svg>
