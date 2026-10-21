@@ -1,5 +1,4 @@
 <div align="center">
-# RTConnect
 
 <img src="docs/assets/rtconnect-logo.svg" alt="RTConnect — Perangkat Lunak Administrasi di Tingkat RT/RW dengan Integrasi NLP dan Generative AI" width="520">
 
