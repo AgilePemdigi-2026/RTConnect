@@ -1,0 +1,16 @@
+﻿pertanyaan,jenis_uji,id_diharapkan,semantic_top1,semantic_skor,semantic_top1_tepat,hybrid_top1,hybrid_judul,hybrid_top3,hybrid_cosine,hybrid_bm25,hybrid_rrf,hybrid_top1_tepat,hybrid_top3_tepat,lolos_ambang
+Bagaimana mengurus KTP yang hilang di Surabaya?,RELEVAN,"RTC-014, RTC-033",RTC-014,0.6283,True,RTC-014,KTP-el hilang: persyaratan dan proses cetak ulang Surabaya,"RTC-014, RTC-031, RTC-033",0.6283,4.5947,0.03279,True,True,False
+Apa syarat mengganti Kartu Keluarga yang rusak?,RELEVAN,RTC-018,RTC-018,0.6216,True,RTC-018,Kartu Keluarga (KK) rusak: permohonan cetak ulang Surabaya,"RTC-018, RTC-031, RTC-017",0.6216,5.845,0.03279,True,True,False
+Bagaimana prosedur pembuatan SKCK secara online?,RELEVAN,"RTC-026, RTC-032",RTC-026,0.5942,True,RTC-026,Cara daftar dan membuat SKCK online: alur Polri,"RTC-026, RTC-025, RTC-032",0.5942,9.1086,0.03279,True,True,False
+Apa ketentuan pindah alamat ke rumah kontrakan?,RELEVAN,RTC-019,RTC-019,0.7288,True,RTC-019,Pindah datang menggunakan alamat rumah kontrakan,"RTC-019, RTC-020, RTC-022",0.7288,17.4603,0.03279,True,True,True
+Berapa harga tiket konser minggu depan?,LUAR_CAKUPAN,,RTC-031,0.1155,,RTC-010,Standar layanan Surat Keterangan Kecamatan Karang Pilang,"RTC-010, RTC-012, RTC-011",0.0594,3.6047,0.03252,,,False
+Apa PIN tanda tangan Ketua RT?,RAHASIA,,RTC-023,0.4296,,RTC-023,Pelaporan kematian tanpa keluarga,"RTC-023, RTC-031, RTC-024",0.4296,3.7951,0.03279,,,False
+"Saya kehilangan KK, bagaimana cetak ulang?",RELEVAN,RTC-031,RTC-031,0.5646,True,RTC-031,Kartu Keluarga hilang: syarat cetak ulang melalui Disdukcapil Surabaya,"RTC-031, RTC-018, RTC-033",0.5646,6.9581,0.03279,True,True,False
+Bagaimana membuat KTP pertama kali saat umur 17?,RELEVAN,"RTC-012, RTC-013",RTC-013,0.5461,True,RTC-013,Perekaman KTP-el untuk usia 17 tahun atau sudah menikah,"RTC-013, RTC-012, RTC-014",0.5461,8.7552,0.03279,True,True,False
+Bagaimana jika KTP saya patah?,RELEVAN,RTC-015,RTC-018,0.2978,False,RTC-018,Kartu Keluarga (KK) rusak: permohonan cetak ulang Surabaya,"RTC-018, RTC-015, RTC-023",0.2978,2.4717,0.03252,False,True,False
+Bagaimana mengubah nama di KK?,RELEVAN,RTC-017,RTC-031,0.4297,False,RTC-017,Perubahan biodata pada KK,"RTC-017, RTC-031, RTC-018",0.3944,5.5461,0.03252,True,True,False
+Bagaimana syarat daftar SKCK lewat aplikasi Polri?,RELEVAN,"RTC-025, RTC-026, RTC-032",RTC-026,0.7322,True,RTC-026,Cara daftar dan membuat SKCK online: alur Polri,"RTC-026, RTC-025, RTC-032",0.7322,11.0256,0.03279,True,True,True
+Apa itu nomor induk berusaha?,RELEVAN,RTC-024,RTC-024,0.289,True,RTC-024,NIB diterbitkan melalui layanan OSS,"RTC-024, RTC-022, RTC-016",0.289,13.1852,0.03279,True,True,False
+Apakah surat pengantar Ketua RT pasti gratis?,BELUM_ADA_SOP_RT,,RTC-011,0.539,,RTC-011,Domisili lembaga di Kelurahan Karang Pilang,"RTC-011, RTC-023, RTC-010",0.539,4.8229,0.03252,,,False
+Berapa lama surat pengantar RT selesai?,BELUM_ADA_SOP_RT,,RTC-011,0.4649,,RTC-010,Standar layanan Surat Keterangan Kecamatan Karang Pilang,"RTC-010, RTC-011, RTC-024",0.4389,7.0276,0.03252,,,False
+Apakah surat domisili lembaga di kelurahan sama dengan surat RT?,RELEVAN,RTC-011,RTC-011,0.5834,True,RTC-011,Domisili lembaga di Kelurahan Karang Pilang,"RTC-011, RTC-022, RTC-010",0.5834,15.2099,0.03279,True,True,False
