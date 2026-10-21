@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
-
-import 'features/pengajuan_rt/pages/kelola_pengajuan_page.dart';
-import 'features/pengajuan_rt/rt_theme.dart';
-import 'features/pengajuan_rt/services/pengajuan_rt_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/constants/app_constants.dart';
+import 'core/router/app_router.dart';
+import 'core/theme/app_theme.dart';
 
 void main() {
-  runApp(const RTConnectApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(
+    const ProviderScope(
+      child: RTConnectApp(),
+    ),
+  );
 }
 
 class RTConnectApp extends StatelessWidget {
@@ -13,20 +18,11 @@ class RTConnectApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Sementara pakai data dummy (PIN: 482913).
-    // Kalau backend Flask sudah jalan, ganti dengan:
-    // ApiPengajuanRtService(baseUrl: 'http://10.0.2.2:5000/api', tokenProvider: () => token)
-    final service = MockPengajuanRtService();
-
-    return MaterialApp(
-      title: 'RTConnect',
+    return MaterialApp.router(
+      title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: RtColors.primary,
-        scaffoldBackgroundColor: RtColors.bg,
-      ),
-      home: KelolaPengajuanPage(service: service),
+      theme: AppTheme.lightTheme,
+      routerConfig: appRouter,
     );
   }
 }
