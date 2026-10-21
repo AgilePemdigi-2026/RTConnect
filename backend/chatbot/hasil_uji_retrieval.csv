@@ -1,7 +1,7 @@
 ﻿pertanyaan,top_score,judul_terdekat,lolos_ambang,status
-Bagaimana mengurus KTP yang hilang di Surabaya?,0.6253,Persyaratan dasar perekaman KTP-el di Surabaya,False,FALLBACK
-Apa syarat mengganti Kartu Keluarga yang rusak?,0.5074,Perubahan biodata pada KK,False,FALLBACK
-Bagaimana prosedur pembuatan SKCK secara online?,0.6341,Alur umum SKCK online,False,FALLBACK
+Bagaimana mengurus KTP yang hilang di Surabaya?,0.6283,KTP-el hilang: persyaratan dan proses cetak ulang Surabaya,False,FALLBACK
+Apa syarat mengganti Kartu Keluarga yang rusak?,0.6216,Kartu Keluarga (KK) rusak: permohonan cetak ulang Surabaya,False,FALLBACK
+Bagaimana prosedur pembuatan SKCK secara online?,0.5942,Cara daftar dan membuat SKCK online: alur Polri,False,FALLBACK
 Apa ketentuan pindah alamat ke rumah kontrakan?,0.7288,Pindah datang menggunakan alamat rumah kontrakan,True,SUMBER_DITEMUKAN
-Berapa harga tiket konser minggu depan?,0.0594,Standar layanan Surat Keterangan Kecamatan Karang Pilang,False,FALLBACK
+Berapa harga tiket konser minggu depan?,0.1155,Kartu Keluarga hilang: syarat cetak ulang melalui Disdukcapil Surabaya,False,FALLBACK
 Apa PIN tanda tangan Ketua RT?,0.4296,Pelaporan kematian tanpa keluarga,False,FALLBACK
