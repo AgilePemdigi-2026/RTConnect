@@ -196,50 +196,34 @@ def muat_retrieval():
 
 
 # Hybrid Retrieval
+
 def cari_dokumen(pertanyaan, model, embeddings, dokumen, top_k=3):
 
     if batasan(pertanyaan):
         return []
 
+    if not dokumen:
+        return []
+
     topik = topik_pertanyaan(pertanyaan)
     aksi = aksi_pertanyaan(pertanyaan)
 
-    # Memilih dokumen dengan topik yang sesuai
-    calon = [
-        i for i, item in enumerate(dokumen)
-        if topik_dokumen(item) == topik
-    ]
-
-    if not calon:
-        return []
-
-    # Memprioritaskan jenis keperluan
-    cocok_aksi = [
-        i for i in calon
-        if aksi_dokumen(dokumen[i]) == aksi
-    ]
-
-    if cocok_aksi:
-        calon = cocok_aksi
-
-    # Semantic similarity
+    # 1. Semantic Search seluruh dokumen
     vektor = model.encode(
         [pertanyaan], normalize_embeddings=True
     )[0]
 
     skor_semantik = embeddings @ vektor
 
-    # Menyiapkan teks untuk BM25
+    # 2. Persiapan BM25 seluruh dokumen
     korpus = []
 
-    for i in calon:
-        item = dokumen[i]
-
+    for item in dokumen:
         teks = " ".join([
             item["judul"],
             item["judul"],
-            item["kategori"],
-            item["konten"],
+            item.get("kategori", ""),
+            item.get("konten", ""),
             " ".join(item.get("kata_kunci") or []),
             " ".join(item.get("contoh_pertanyaan") or [])
         ])
@@ -247,42 +231,87 @@ def cari_dokumen(pertanyaan, model, embeddings, dokumen, top_k=3):
         korpus.append(tokenisasi(teks))
 
     bm25 = BM25Okapi(korpus)
-    skor_bm25 = bm25.get_scores(tokenisasi(pertanyaan))
 
-    # Ranking semantic dan BM25
-    ranking_semantik = sorted(
-        range(len(calon)),
-        key=lambda k: -skor_semantik[calon[k]]
-    )
+    # Menyamakan beberapa istilah untuk pencarian kata
+    query_bm25 = normalisasi(pertanyaan)
 
-    ranking_bm25 = sorted(
-        range(len(calon)),
-        key=lambda k: -skor_bm25[k]
-    )
+    padanan = {
+        "patah": "rusak",
+        "pecah": "rusak",
+        "sobek": "rusak",
+        "kehilangan": "hilang",
+        "tidak ketemu": "hilang",
+        "mengubah": "perubahan",
+        "ubah": "perubahan",
+        "ngekos": "nonpermanen"
+    }
 
-    # Reciprocal Rank Fusion
-    skor_rrf = np.zeros(len(calon))
-
-    for posisi, k in enumerate(ranking_semantik, start=1):
-        skor_rrf[k] += 1 / (60 + posisi)
-
-    if max(skor_bm25, default=0) > 0:
-        for posisi, k in enumerate(ranking_bm25, start=1):
-            skor_rrf[k] += 1 / (60 + posisi)
-
-    # Mengurutkan hasil gabungan
-    urutan = sorted(
-        range(len(calon)),
-        key=lambda k: (
-            -skor_rrf[k],
-            -skor_semantik[calon[k]]
+    for kata, pengganti in padanan.items():
+        query_bm25 = re.sub(
+            r"\b" + re.escape(kata) + r"\b",
+            pengganti,
+            query_bm25
         )
+
+    skor_bm25 = bm25.get_scores(tokenisasi(query_bm25))
+    skor_bm25 = np.maximum(skor_bm25, 0)
+
+    # 3. Ranking kedua metode
+    ranking_semantik = np.argsort(
+        -skor_semantik, kind="stable"
     )
+
+    ranking_bm25 = np.argsort(
+        -skor_bm25, kind="stable"
+    )
+
+    # 4. Menggabungkan ranking menggunakan RRF
+    skor_rrf = np.zeros(len(dokumen))
+
+    for posisi, indeks in enumerate(
+        ranking_semantik, start=1
+    ):
+        skor_rrf[indeks] += 1 / (60 + posisi)
+
+    for posisi, indeks in enumerate(
+        ranking_bm25, start=1
+    ):
+        if skor_bm25[indeks] > 0:
+            skor_rrf[indeks] += 1 / (60 + posisi)
+
+    # 5. Penyesuaian relevansi topik dan keperluan
+    skor_akhir = skor_rrf.copy()
+
+    for i, item in enumerate(dokumen):
+
+        topik_cocok = (
+            topik is not None
+            and topik_dokumen(item) == topik
+        )
+
+        aksi_cocok = (
+            aksi is not None
+            and aksi_dokumen(item) == aksi
+        )
+
+        if topik_cocok:
+            skor_akhir[i] += 0.010
+
+        if topik_cocok and aksi_cocok:
+            skor_akhir[i] += 0.004
+
+    # 6. Mengurutkan hasil akhir
+    urutan = sorted(
+        range(len(dokumen)),
+        key=lambda i: (
+            -skor_akhir[i],
+            -skor_semantik[i]
+        )
+    )[:top_k]
 
     hasil = []
 
-    for k in urutan[:top_k]:
-        i = calon[k]
+    for i in urutan:
         item = dokumen[i]
 
         hasil.append({
@@ -291,8 +320,9 @@ def cari_dokumen(pertanyaan, model, embeddings, dokumen, top_k=3):
             "konten": item["konten"],
             "sumber": item.get("url_sumber", ""),
             "skor": float(skor_semantik[i]),
-            "bm25": float(skor_bm25[k]),
-            "rrf": float(skor_rrf[k])
+            "bm25": float(skor_bm25[i]),
+            "rrf": float(skor_rrf[i]),
+            "skor_ranking": float(skor_akhir[i])
         })
 
     return hasil
