@@ -1,0 +1,55 @@
+services:
+  database:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: rtconnect_db
+      MYSQL_USER: rtconnect
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Copy .env.example to .env and set local passwords}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Copy .env.example to .env and set local passwords}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "127.0.0.1:3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: development
+      MYSQLHOST: database
+      MYSQLPORT: 3306
+      MYSQLUSER: rtconnect
+      MYSQLPASSWORD: ${MYSQL_PASSWORD:?Copy .env.example to .env and set local passwords}
+      MYSQLDATABASE: rtconnect_db
+      MYSQL_SSL_MODE: disabled
+      JWT_SECRET: ${JWT_SECRET:-}
+      RT_SIGNING_PIN_HASH: ${RT_SIGNING_PIN_HASH:-}
+      RT_WHATSAPP_NUMBER: ${RT_WHATSAPP_NUMBER:-}
+      RT_NAME: ${RT_NAME:-Ketua RT}
+      RT_NUMBER: ${RT_NUMBER:-032}
+      RW_NUMBER: ${RW_NUMBER:-08}
+      RT_LETTER_CODE: ${RT_LETTER_CODE:-GTA}
+      RT_AREA: ${RT_AREA:-RT 032 / RW 08 Griya Taman Asri}
+      RT_LOCATION_LINE_2: ${RT_LOCATION_LINE_2:-PERUMAHAN GRIYA TAMAN ASRI — KELURAHAN SEPANJANG}
+      RT_LOCATION_LINE_3: ${RT_LOCATION_LINE_3:-KECAMATAN TAMAN, KABUPATEN SIDOARJO — JAWA TIMUR 61257}
+      RT_SIGNING_LOCATION: ${RT_SIGNING_LOCATION:-Sidoarjo}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080}
+      STORAGE_BACKEND: local
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    volumes:
+      - uploads_data:/app/uploads
+    command: ["sh", "-c", "python -m database.migrate && python -m database.seed && exec gunicorn --workers 1 --threads 4 --timeout 60 --bind 0.0.0.0:5000 app:app"]
+
+volumes:
+  mysql_data:
+  uploads_data:

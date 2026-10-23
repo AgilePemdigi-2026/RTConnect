@@ -1,48 +1,57 @@
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
-.DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+# Project Planning & Knowledge Base (Local Obsidian Vault)
+RTConnect-KnowledgeBase/
 
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
-.idea/
-
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
-
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
+# Flutter / Dart
 .dart_tool/
+.packages
+build/
+.flutter-plugins
 .flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
-/coverage/
 
-# Symbolication related
-app.*.symbols
+# Environment & Secrets
+.env
+*.env.*
+!.env.example
+android/key.properties
+android/app/*.jks
+android/app/*.keystore
 
-# Obfuscation related
-app.*.map.json
+# Python / Local Dev
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+backend/uploads/generated_letters/*.pdf
+backend/uploads/attachments/*
+!backend/uploads/signatures/*.png
 
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+# Academic Documents, SRS, & Project Monitoring (Non-Runtime)
+UTS/
+monitoring/
+diagrams/
+uml/
+scripts/
+*.zip
+*.docx
 
-# Widget Preview related
-.widget_preview/
+# Raw UI Mockups & Diagram Assets (Not Used by App Runtime)
+assets/ui_designs/
+assets/diagrams/
+
+# Temporary Dev Reports & Changelogs
+BACKEND_CHANGE_REPORT.md
+
+# IDE & Editor
+.idea/
+.vscode/
+*.iml
+.metadata
+*.swp
+*.swo
+
+# OS Generated
+Thumbs.db
+Desktop.ini
+.DS_Store
