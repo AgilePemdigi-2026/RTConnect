@@ -74,6 +74,17 @@ def _apply_compatibility_migration(cursor):
         )
 
 
+def _apply_chatbot_metadata_migration(cursor):
+    if (
+        'knowledge_chunks' in _tables(cursor)
+        and 'kode_sumber' not in _columns(cursor, 'knowledge_chunks')
+    ):
+        cursor.execute(
+            'ALTER TABLE knowledge_chunks '
+            'ADD COLUMN kode_sumber VARCHAR(20) NULL AFTER kata_kunci'
+        )
+
+
 def migrate():
     connection = get_connection(migration=True)
     try:
@@ -95,6 +106,11 @@ def migrate():
             if version < 2:
                 _apply_compatibility_migration(cursor)
                 cursor.execute(f'INSERT INTO `{MIGRATION_TABLE}` (version) VALUES (2)')
+                version = 2
+
+            if version < 3:
+                _apply_chatbot_metadata_migration(cursor)
+                cursor.execute(f'INSERT INTO `{MIGRATION_TABLE}` (version) VALUES (3)')
 
         print('Database migrations completed.')
     finally:

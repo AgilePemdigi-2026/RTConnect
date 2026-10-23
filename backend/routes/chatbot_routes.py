@@ -87,6 +87,9 @@ def ask_chatbot():
             'answer': rag_result['answer'],
             'citation': rag_result['citation'],
             'similarity_score': rag_result['similarity_score'],
+            'status': rag_result.get('status'),
+            'source_id': rag_result.get('source_id'),
+            'base_score': rag_result.get('base_score'),
             'escalation_whatsapp_url': rag_result['escalation_whatsapp_url']
         },
         'error': None

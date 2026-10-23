@@ -15,7 +15,7 @@
 
 ## Backend
 - All blueprints mount under `/api/v1`; roles are `warga`, `rt`, `admin` (docs mentioning `ketua_rt` are stale). JSON envelope: `{success, message, data, error}`.
-- Runtime chatbot is `services/rag_service.py` (lexical TF cosine + simple Indonesian stemming). `backend/chatbot/` is offline training/evaluation code requiring sentence-transformers, rank_bm25, and numpy, which are not in `requirements.txt`; do not import it from the API.
+- Runtime chatbot is `services/rag_service.py` (lexical TF cosine + simple Indonesian stemming + topic/action boosts + scope guard from `services/chatbot_rules.py`). `database/seed.py` imports the 20 public government references from `backend/chatbot/dataset/knowledgebase.jsonl`; `knowledge_chunks.kode_sumber` links them to the offline IDs. `backend/chatbot/` is offline evaluation code requiring sentence-transformers, rank_bm25, and numpy, which are not in `requirements.txt`; do not import it from the API. Runtime ranking can be evaluated without MySQL via `cd backend/chatbot && python evaluate_runtime.py`.
 - `APP_ENV=production` makes `config.py` fail fast (JWT secret, PIN hash, S3, database CA, CORS, WhatsApp). Do not use it for local work.
 - Digital signing overlays a signature image into the PDF; it is not cryptographic. If `RT_SIGNING_PIN_HASH` is unset, `sign-digital` returns 503.
 - Uploads are private: local `backend/uploads` or S3 via `STORAGE_BACKEND`.
@@ -27,4 +27,4 @@
 ## Docs and secrets
 - Trust `backend/README.md` and `DEPLOYMENT.md`. `frontend/README.md` is stale (describes an all-root layout and Gemini/embedding-based RAG).
 - No CI workflows are checked in despite README references.
-- Only `frontend/.gitignore` exists; root `.env` and `backend/.env` are not ignored. Keep secrets out of commits.
+- `frontend/.gitignore` and the root `.gitignore` exist; the root file ignores `__pycache__`, `*.py[cod]`, and `.env`. Keep secrets out of commits.
