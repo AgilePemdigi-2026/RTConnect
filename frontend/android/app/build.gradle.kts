@@ -1,9 +1,25 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+<<<<<<< Updated upstream
+=======
+val releaseSigningProperties = Properties().apply {
+    val propertiesFile = rootProject.file("key.properties")
+    if (propertiesFile.exists()) {
+        propertiesFile.inputStream().use { load(it) }
+    }
+}
+val releaseStorePath = releaseSigningProperties.getProperty("storeFile")
+val releaseSigningConfigured = listOf("storePassword", "keyPassword", "keyAlias")
+    .all { !releaseSigningProperties.getProperty(it).isNullOrBlank() } && !releaseStorePath.isNullOrBlank()
+
+>>>>>>> Stashed changes
 android {
     namespace = "com.example.flutter_application_1"
     compileSdk = flutter.compileSdkVersion
