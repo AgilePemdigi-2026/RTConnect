@@ -1,39 +1,58 @@
+
 import json
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 from sentence_transformers import SentenceTransformer
-from preprocessing import baca_dataset, pilih_referensi
 
-data = baca_dataset()
-referensi = pilih_referensi(data)
-teks = [
-    f"{item['judul']}. {item['konten']}"
-    for item in referensi
-]
+try:
+    from .preprocessing import baca_dataset, pilih_referensi
+except ImportError:
+    from preprocessing import baca_dataset, pilih_referensi
 
-#embedding model
-model = SentenceTransformer(
-    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-)
 
-embeddings = model.encode(
-    teks,
-    normalize_embeddings=True,
-    show_progress_bar=True
-)
+MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+CACHE = Path(__file__).parent / "cache"
 
-folder_output = Path(__file__).parent / "cache"
-folder_output.mkdir(exist_ok=True)
 
-# hasil
-np.save(folder_output / "embeddings.npy", embeddings)
+def bangun_embedding():
+    referensi = pilih_referensi(baca_dataset())
 
-# ID dokumen
-ids = [item["id"] for item in referensi]
+    if not referensi:
+        raise ValueError(
+            "Tidak ada referensi pemerintah yang layak dipakai"
+        )
 
-with open(folder_output / "ids.json", "w", encoding="utf-8") as file:
-    json.dump(ids, file, indent=2)
+    teks = [
+        f"{item['judul']}. {item['konten']}"
+        for item in referensi
+    ]
 
-print("Jumlah dokumen:", len(teks))
-print("Ukuran embedding:", embeddings.shape)
-print("Embedding berhasil disimpan")
+    model = SentenceTransformer(MODEL)
+
+    vektor = model.encode(
+        teks,
+        normalize_embeddings=True,
+        show_progress_bar=True
+    )
+
+    CACHE.mkdir(exist_ok=True)
+
+    np.save(CACHE / "embeddings.npy", vektor)
+
+    (CACHE / "ids.json").write_text(
+        json.dumps(
+            [item["id"] for item in referensi],
+            indent=2
+        ),
+        encoding="utf-8"
+    )
+
+    print(
+        f"Embedding tersimpan: {len(referensi)} dokumen, "
+        f"dimensi {vektor.shape[1]}"
+    )
+
+
+if __name__ == "__main__":
+    bangun_embedding()

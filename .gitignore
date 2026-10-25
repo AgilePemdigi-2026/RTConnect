@@ -1,3 +1,8 @@
-__pycache__/
 *.py[cod]
 .env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+backend/chatbot/cache/
+backend/uploads/
