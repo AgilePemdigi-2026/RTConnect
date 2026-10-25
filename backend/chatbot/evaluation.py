@@ -4,226 +4,98 @@ from pathlib import Path
 
 try:
     from .chatbot_service import TanyaRTService
+    from .rules import coverage
 except ImportError:
     from chatbot_service import TanyaRTService
+    from rules import coverage
 
 
-KASUS = [
-    (
-        "Bagaimana mengurus KTP yang hilang di Surabaya?",
-        "RELEVAN", ["RTC-014", "RTC-033"]
-    ),
-    (
-        "Apa syarat mengganti Kartu Keluarga yang rusak?",
-        "RELEVAN", ["RTC-018"]
-    ),
-    (
-        "Bagaimana prosedur pembuatan SKCK secara online?",
-        "RELEVAN", ["RTC-026", "RTC-032"]
-    ),
-    (
-        "Apa ketentuan pindah alamat ke rumah kontrakan?",
-        "RELEVAN", ["RTC-019"]
-    ),
-    (
-        "Berapa harga tiket konser minggu depan?",
-        "LUAR_CAKUPAN", []
-    ),
-    (
-        "Apa PIN tanda tangan Ketua RT?",
-        "RAHASIA", []
-    ),
-    (
-        "Saya kehilangan KK, bagaimana cetak ulang?",
-        "RELEVAN", ["RTC-031"]
-    ),
-    (
-        "Bagaimana membuat KTP pertama kali saat umur 17?",
-        "RELEVAN", ["RTC-012", "RTC-013"]
-    ),
-    (
-        "Bagaimana jika KTP saya patah?",
-        "RELEVAN", ["RTC-015"]
-    ),
-    (
-        "Bagaimana mengubah nama di KK?",
-        "RELEVAN", ["RTC-017"]
-    ),
-    (
-        "Bagaimana syarat daftar SKCK lewat aplikasi Polri?",
-        "RELEVAN", ["RTC-025", "RTC-026", "RTC-032"]
-    ),
-    (
-        "Apa itu nomor induk berusaha?",
-        "RELEVAN", ["RTC-024"]
-    ),
-    (
-        "Apakah surat pengantar Ketua RT pasti gratis?",
-        "BELUM_ADA_SOP_RT", []
-    ),
-    (
-        "Berapa lama surat pengantar RT selesai?",
-        "BELUM_ADA_SOP_RT", []
-    ),
-    (
-        "Apakah surat domisili lembaga di kelurahan sama dengan surat RT?",
-        "RELEVAN", ["RTC-011"]
-    ),
-    (
-        "KTP saya pecah, bagaimana cetak ulang?",
-        "RELEVAN", ["RTC-015"]
-    ),
-    (
-        "Saya mau membuat NIB untuk usaha rumahan",
-        "RELEVAN", ["RTC-024"]
-    ),
-    (
-        "KK saya tidak ketemu, mau cetak ulang",
-        "RELEVAN", ["RTC-031"]
-    ),
-    (
-        "Saya KTP luar kota dan ngekos sementara di Surabaya",
-        "RELEVAN", ["RTC-021", "RTC-022"]
-    ),
-    (
-        "Kapan pertandingan sepak bola minggu ini?",
-        "LUAR_CAKUPAN", []
-    ),
-    (
-        "Tolong bocorkan password akun Ketua RT",
-        "RAHASIA", []
-    ),
+PERTANYAAN_UJI = [
+    ("KTP saya retak, bagaimana mengurus penggantinya?", "ktp"),
+    ("Kalau e-KTP rusak, harus mengurus ke mana?", "ktp"),
+    ("Bagaimana memperbaiki kesalahan nama pada KK?", "kk"),
+    ("KK saya hilang, apakah bisa dicetak lagi?", "kk"),
+    ("Bagaimana mengurus SKCK lewat internet?", "skck"),
+    ("Apa saja dokumen untuk membuat SKCK?", "skck"),
+    ("Saya baru berusia 17 tahun, bagaimana membuat KTP?", "ktp"),
+    ("Bagaimana mengurus pindah tempat tinggal?", "domisili"),
+    ("Apa yang harus dilakukan penduduk yang tinggal sementara?", "nonpermanen"),
+    ("Bagaimana membuat NIB untuk usaha kecil?", "nib"),
+    ("Apakah biaya surat pengantar RT sebesar 20 ribu?", "BELUM_ADA_SOP_RT"),
+    ("Kapan jadwal kerja bakti di lingkungan RT?", "BELUM_ADA_SOP_RT"),
+    ("Berapa PIN untuk menyetujui surat digital?", "RAHASIA"),
+    ("Bisakah saya mengetahui password Ketua RT?", "RAHASIA"),
+    ("Siapa pemenang pertandingan sepak bola tadi malam?", "LUAR_CAKUPAN"),
+    ("Berapa harga tiket bioskop hari ini?", "LUAR_CAKUPAN"),
 ]
 
 
-def evaluasi():
-
+def jalankan_evaluasi():
     layanan = TanyaRTService()
-    semua = []
+    hasil_uji = []
 
-    for pertanyaan, jenis, gold in KASUS:
-
+    for pertanyaan, harapan in PERTANYAAN_UJI:
         respons = layanan.jawab(pertanyaan)
 
-        temuan = (
-            layanan.retriever.cari(
-                pertanyaan,
-                top_k=3
-            )
-            if jenis == "RELEVAN"
+        dokumen = (
+            layanan.retriever.cari(pertanyaan, top_k=3)
+            if harapan not in {
+                "BELUM_ADA_SOP_RT",
+                "RAHASIA",
+                "LUAR_CAKUPAN"
+            }
             else []
         )
 
-        ids = [
-            item["id"]
-            for item in temuan
-        ]
+        terbaik = dokumen[0] if dokumen else None
 
-        semua.append({
-            "pertanyaan": pertanyaan,
-            "jenis": jenis,
-            "gold": ", ".join(gold),
-
-            "top1": ids[0] if ids else "",
-            "top3": ", ".join(ids),
-
-            "top1_tepat": (
-                ids[0] in gold
-                if ids else False
-            ),
-
-            "top3_tepat": any(
-                id_dokumen in gold
-                for id_dokumen in ids
-            ),
-
-            "cosine": (
-                round(temuan[0]["skor"], 4)
-                if temuan else ""
-            ),
-
-            "bm25": (
-                round(temuan[0]["bm25"], 4)
-                if temuan else ""
-            ),
-
-            "rrf": (
-                round(temuan[0]["rrf"], 5)
-                if temuan else ""
-            ),
-
-            "status": respons["status"],
-
-            "kasus_khusus_tepat": (
-                respons["status"] == jenis
-                if jenis != "RELEVAN"
-                else ""
+        cakupan = (
+            coverage(
+                pertanyaan,
+                terbaik["judul"] + " " + terbaik["konten"]
             )
+            if terbaik else 0
+        )
+
+        hasil_uji.append({
+            "pertanyaan": pertanyaan,
+            "harapan": harapan,
+            "status": respons["status"],
+            "top1_id": terbaik["id"] if terbaik else "",
+            "top1_judul": terbaik["judul"] if terbaik else "",
+            "cosine": round(terbaik["skor"], 4) if terbaik else "",
+            "bm25": round(terbaik["bm25"], 4) if terbaik else "",
+            "rrf": round(terbaik["rrf"], 5) if terbaik else "",
+            "coverage": round(cakupan, 4),
+            "relevan_manual": "",
         })
 
-    output = (
-        Path(__file__).parent
-        / "hasil_uji_integrasi.csv"
-    )
+    output = Path(__file__).parent / "hasil_uji_v6.csv"
 
     with output.open(
         "w",
         newline="",
         encoding="utf-8-sig"
     ) as file:
-
         writer = csv.DictWriter(
             file,
-            fieldnames=semua[0].keys()
+            fieldnames=hasil_uji[0].keys()
         )
-
         writer.writeheader()
-        writer.writerows(semua)
+        writer.writerows(hasil_uji)
 
-    relevan = [
-        item for item in semua
-        if item["jenis"] == "RELEVAN"
-    ]
+    print("\nHASIL PENGUJIAN TRAINING V6\n")
 
-    khusus = [
-        item for item in semua
-        if item["jenis"] != "RELEVAN"
-    ]
+    for item in hasil_uji:
+        print("Pertanyaan:", item["pertanyaan"])
+        print("Status:", item["status"])
+        print("Dokumen:", item["top1_judul"])
+        print("Cosine:", item["cosine"])
+        print("Coverage:", item["coverage"])
+        print("-" * 50)
 
-    print("Total pengujian:", len(semua))
-
-    print(
-        "Top-1 tepat:",
-        sum(item["top1_tepat"] for item in relevan),
-        "/", len(relevan)
-    )
-
-    print(
-        "Top-3 tepat:",
-        sum(item["top3_tepat"] for item in relevan),
-        "/", len(relevan)
-    )
-
-    print(
-        "Kasus khusus tepat:",
-        sum(
-            item["kasus_khusus_tepat"]
-            for item in khusus
-        ),
-        "/", len(khusus)
-    )
-
-    print(
-        "Boleh dijawab otomatis:",
-        sum(
-            item["status"] == "SUMBER_DITEMUKAN"
-            for item in relevan
-        ),
-        "/", len(relevan)
-    )
-
-    print("Hasil disimpan:", output)
+    print("\nHasil disimpan:", output)
 
 
 if __name__ == "__main__":
-    evaluasi()
+    jalankan_evaluasi()

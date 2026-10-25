@@ -39,6 +39,11 @@ def normalisasi(teks):
     teks = str(teks).lower()
 
     padanan = [
+        ("retak", "rusak"),
+        ("kesalahan nama", "perubahan nama"),
+        ("pindah tempat tinggal", "pindah alamat"),
+        ("tinggal sementara", "nonpermanen"),
+        ("dokumen persyaratan", "persyaratan"),
         ("kartu keluarga", "kk"),
         ("kartu tanda penduduk", "ktp"),
         ("ktp-el", "ktp"),
@@ -132,7 +137,10 @@ def aksi_pertanyaan(teks):
     ):
         return "perekaman"
 
-    if re.search(r"syarat|persyaratan|berkas", q):
+    if re.search(
+        r"syarat|persyaratan|berkas|dokumen untuk|dokumen yang diperlukan",
+        q
+    ):
         return "persyaratan"
 
     if re.search(r"prosedur|cara|daftar|online", q):
