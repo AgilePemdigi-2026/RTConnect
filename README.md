@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="![RTConnect](frontend/docs/assets/rtconnect-logo.svg)" alt="RTConnect — Perangkat Lunak Administrasi di Tingkat RT/RW dengan Integrasi NLP dan Generative AI" width="520">
+<img src="frontend/docs/assets/rtconnect-logo.svg)" alt="RTConnect — Perangkat Lunak Administrasi di Tingkat RT/RW dengan Integrasi NLP dan Generative AI" width="520">
 
 <p><strong>Administrasi RT/RW dari rumah, dibantu Generative AI</strong><br>
 Warga mengajukan surat pengantar secara daring, Ketua RT mengesahkannya dengan satu PIN, dan pertanyaan seputar layanan RT dijawab chatbot 24 jam.</p>
