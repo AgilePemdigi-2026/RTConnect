@@ -1,14 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:flutter_application_1/main.dart';
+import 'package:rtconnect/main.dart';
 
 void main() {
-  testWidgets('Halaman Pengajuan Warga tampil', (WidgetTester tester) async {
+  testWidgets('RTConnectApp inisialisasi dan menampilkan halaman pembuka', (WidgetTester tester) async {
     await tester.pumpWidget(const RTConnectApp());
-    expect(find.text('Pengajuan Warga'), findsOneWidget);
+    await tester.pump();
 
-    // Tunggu data dummy selesai dimuat
-    await tester.pumpAndSettle(const Duration(seconds: 1));
-    expect(find.text('Ahmad Dhafin Al Farisy'), findsOneWidget);
+    // Pastikan teks aplikasi RTConnect berhasil dirender di Landing Page
+    expect(find.text('RTConnect'), findsWidgets);
   });
 }
