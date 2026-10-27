@@ -1,37 +1,60 @@
-
 import re
 
-
-TOPIK_ID = {
-    "ktp": {
-        "RTC-012", "RTC-013", "RTC-014",
-        "RTC-015", "RTC-016", "RTC-033"
-    },
-    "kk": {"RTC-017", "RTC-018", "RTC-031"},
-    "skck": {"RTC-025", "RTC-026", "RTC-032"},
-    "domisili": {"RTC-019", "RTC-020"},
-    "domisili_lembaga": {"RTC-011"},
-    "nonpermanen": {"RTC-021", "RTC-022"},
-    "nib": {"RTC-024"},
-    "kecamatan": {"RTC-010"},
-    "kematian": {"RTC-023"},
-}
-
-AKSI_ID = {
-    "hilang": {"RTC-014", "RTC-031", "RTC-033"},
-    "rusak": {"RTC-015", "RTC-018"},
-    "perubahan": {"RTC-016", "RTC-017"},
-    "perekaman": {"RTC-012", "RTC-013"},
-    "persyaratan": {"RTC-025"},
-    "prosedur": {"RTC-026", "RTC-032"},
-}
 
 STOP = {
     "yang", "di", "dan", "ini", "itu", "ke",
     "dari", "untuk", "pada", "dengan", "adalah",
     "bisa", "dapat", "saya", "apa", "bagaimana",
     "berapa", "kapan", "apakah", "ingin", "mau",
-    "tolong", "rt", "ketua"
+    "tolong", "rt", "ketua",
+    # kata tanya umum yang tidak membawa topik
+    "lama", "masa", "mana", "sampai", "saja",
+    "harus", "boleh",
+}
+
+# Topik spesifik mengalahkan topik umum (ktp/kk).
+TOPIK_SPESIFIK = [
+    ("skck", r"\bskck\b"),
+    ("nib", r"\bnib\b|izin berusaha|usaha rumahan"),
+    (
+        "domisili_lembaga",
+        None  # dicek khusus di bawah
+    ),
+    (
+        "nonpermanen",
+        r"nonpermanen|non permanen|\bkos\b|"
+        r"ktp luar kota|penduduk sementara"
+    ),
+    (
+        "domisili",
+        r"kontrakan|rumah sewa|pindah alamat|"
+        r"menumpang tinggal|pindah datang"
+    ),
+    ("kematian", r"kematian"),
+    (
+        "kecamatan",
+        None  # dicek khusus di bawah
+    ),
+]
+
+TOPIK_UMUM = [
+    ("kk", r"\bkk\b"),
+    ("ktp", r"\bktp\b|perekaman identitas"),
+]
+
+# Kata yang menandakan pertanyaan administrasi
+# yang belum ada di knowledge base.
+ADMIN_LAIN = (
+    r"\bakta\b|\bkia\b|paspor|bpjs|\bsim\b|stnk|bpkb|"
+    r"npwp|pinjol|pinjaman online|disalahgunakan|"
+    r"dipakai orang|penipuan"
+)
+
+# Kelompok kata "penentu": jika ditanyakan tetapi tidak ada di
+# dokumen, dokumen tidak boleh dipakai sebagai jawaban pasti.
+KELOMPOK_PENENTU = {
+    "biaya", "tarif", "gratis", "denda",
+    "bayar", "membayar", "dipungut",
 }
 
 
@@ -42,6 +65,7 @@ def normalisasi(teks):
         ("retak", "rusak"),
         ("kesalahan nama", "perubahan nama"),
         ("pindah tempat tinggal", "pindah alamat"),
+        ("pindah domisili", "pindah alamat"),
         ("tinggal sementara", "nonpermanen"),
         ("dokumen persyaratan", "persyaratan"),
         ("kartu keluarga", "kk"),
@@ -72,47 +96,43 @@ def tokenisasi(teks):
     return re.findall(r"[a-z0-9]+", normalisasi(teks))
 
 
-def topik_pertanyaan(teks):
+def tokenisasi_bm25(teks):
+    """Token untuk BM25: kata umum dibuang."""
+    return [k for k in tokenisasi(teks) if k not in STOP]
+
+
+def semua_topik(teks):
+    """Daftar topik yang terdeteksi.
+
+    Topik spesifik didahulukan. Jika hanya topik umum (ktp, kk),
+    semuanya dikembalikan agar pertanyaan multi-topik terdeteksi.
+    """
     q = normalisasi(teks)
+    spesifik = []
 
-    if re.search(r"\bskck\b", q):
-        return "skck"
+    for nama, pola in TOPIK_SPESIFIK:
+        if nama == "domisili_lembaga":
+            cocok = "domisili" in q and "lembaga" in q
+        elif nama == "kecamatan":
+            cocok = "surat keterangan" in q and "kecamatan" in q
+        else:
+            cocok = bool(re.search(pola, q))
 
-    if re.search(
-        r"\bnib\b|izin berusaha|usaha rumahan", q
-    ):
-        return "nib"
+        if cocok:
+            spesifik.append(nama)
 
-    if "domisili" in q and "lembaga" in q:
-        return "domisili_lembaga"
+    if spesifik:
+        return spesifik
 
-    if re.search(
-        r"nonpermanen|non permanen|\bkos\b|"
-        r"ktp luar kota|penduduk sementara",
-        q
-    ):
-        return "nonpermanen"
+    return [
+        nama for nama, pola in TOPIK_UMUM
+        if re.search(pola, q)
+    ]
 
-    if re.search(
-        r"kontrakan|rumah sewa|pindah alamat|"
-        r"menumpang tinggal",
-        q
-    ):
-        return "domisili"
 
-    if re.search(r"\bkk\b", q):
-        return "kk"
-
-    if re.search(r"\bktp\b|perekaman identitas", q):
-        return "ktp"
-
-    if "kematian" in q:
-        return "kematian"
-
-    if "surat keterangan" in q and "kecamatan" in q:
-        return "kecamatan"
-
-    return None
+def topik_pertanyaan(teks):
+    topik = semua_topik(teks)
+    return topik[0] if topik else None
 
 
 def aksi_pertanyaan(teks):
@@ -138,37 +158,24 @@ def aksi_pertanyaan(teks):
         return "perekaman"
 
     if re.search(
-        r"syarat|persyaratan|berkas|dokumen untuk|dokumen yang diperlukan",
+        r"syarat|persyaratan|berkas|dokumen untuk|"
+        r"dokumen yang diperlukan",
         q
     ):
         return "persyaratan"
 
-    if re.search(r"prosedur|cara|daftar|online", q):
+    if re.search(r"prosedur|cara|daftar|online|internet", q):
         return "prosedur"
 
     return None
 
 
 def topik_dokumen(item):
-    if item.get("entitas_topik"):
-        return item["entitas_topik"]
-
-    for nama, ids in TOPIK_ID.items():
-        if item["id"] in ids:
-            return nama
-
-    return None
+    return item.get("entitas_topik") or None
 
 
 def aksi_dokumen(item):
-    if item.get("aksi_topik"):
-        return item["aksi_topik"]
-
-    for nama, ids in AKSI_ID.items():
-        if item["id"] in ids:
-            return nama
-
-    return None
+    return item.get("aksi_topik") or None
 
 
 def jenis_pertanyaan(teks):
@@ -182,8 +189,16 @@ def jenis_pertanyaan(teks):
         return "RAHASIA"
 
     if re.search(
-        r"abaikan instruksi|ignore previous|"
+        r"abaikan (semua )?(instruksi|aturan)|"
+        r"lupakan (semua )?(instruksi|aturan)|"
+        r"ignore (all |previous )*instructions|"
         r"system prompt|prompt sistem",
+        q
+    ):
+        return "LUAR_CAKUPAN"
+
+    if re.search(
+        r"\b(puisi|pantun|lagu|cerpen|resep)\b",
         q
     ):
         return "LUAR_CAKUPAN"
@@ -206,13 +221,17 @@ def jenis_pertanyaan(teks):
         return "LOKAL_RT"
 
     if re.search(
-        r"kerja bakti|iuran warga|kas rt|"
+        r"kerja bakti|\biuran\b|kas rt|\bronda\b|"
         r"jadwal sampah|balai warga|posyandu rt",
         q
     ):
         return "LOKAL_RT"
 
-    if topik_pertanyaan(q) is not None:
+    # Administrasi, tetapi belum ada di knowledge base
+    if re.search(ADMIN_LAIN, q):
+        return "ADMIN_LAIN"
+
+    if semua_topik(q):
         return "PEMERINTAH"
 
     return "LUAR_CAKUPAN"
@@ -229,4 +248,25 @@ def coverage(pertanyaan, dokumen):
 
     tersedia = set(tokenisasi(dokumen))
 
-    return len(kata & tersedia) / len(kata)
+    def ada(k):
+        # cocok persis, atau bentuk berimbuhan (ambil ~ diambil)
+        return k in tersedia or (
+            len(k) >= 4
+            and any(
+                len(t) >= 4 and (k in t or t in k)
+                for t in tersedia
+            )
+        )
+
+    return sum(ada(k) for k in kata) / len(kata)
+
+
+def penentu_hilang(pertanyaan, dokumen):
+    """True jika pertanyaan menanyakan biaya/tarif/denda tetapi
+    dokumen tidak membahasnya sama sekali."""
+    tanya = set(tokenisasi(pertanyaan)) & KELOMPOK_PENENTU
+
+    if not tanya:
+        return False
+
+    return not (set(tokenisasi(dokumen)) & KELOMPOK_PENENTU)

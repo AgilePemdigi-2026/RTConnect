@@ -6,3 +6,4 @@ __pycache__/
 *.pyc
 backend/chatbot/cache/
 backend/uploads/
+backend/chatbot/hasil_uji*.csv

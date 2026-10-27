@@ -1,24 +1,70 @@
-
+import logging
 import os
 import secrets
+import time
+from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
 )
 from pydantic import BaseModel, Field
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .chatbot_service import get_service
+
+
+logger = logging.getLogger("tanyart")
+
+
+@asynccontextmanager
+async def lifespan(app):
+    # Muat model & cache saat startup. Jika cache tidak cocok,
+    # server gagal start (lebih baik daripada gagal di request pertama).
+    get_service()
+    logger.info("TanyaRT siap")
+    yield
 
 
 app = FastAPI(
     title="TanyaRT Internal API",
     docs_url=None,
-    redoc_url=None
+    redoc_url=None,
+    lifespan=lifespan
 )
 
 security = HTTPBearer(auto_error=False)
+
+
+def galat(kode, pesan):
+    return JSONResponse(
+        status_code=kode,
+        content={
+            "success": False,
+            "data": None,
+            "error": {"code": kode, "message": pesan}
+        }
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def tangani_http(request: Request, exc):
+    return galat(exc.status_code, str(exc.detail))
+
+
+@app.exception_handler(RequestValidationError)
+async def tangani_validasi(request: Request, exc):
+    return galat(422, "Format permintaan tidak valid")
+
+
+@app.exception_handler(Exception)
+async def tangani_umum(request: Request, exc):
+    # Jangan bocorkan detail internal ke klien
+    logger.exception("Kesalahan tak terduga")
+    return galat(500, "Terjadi kesalahan pada layanan chatbot")
 
 
 class DokumenRT(BaseModel):
@@ -40,7 +86,7 @@ class DokumenRT(BaseModel):
 class ChatRequest(BaseModel):
     question: str = Field(
         min_length=1,
-        max_length=1000
+        max_length=2000
     )
 
     rt_id: str | int | None = None
@@ -93,6 +139,8 @@ def health():
 )
 def query(payload: ChatRequest):
 
+    mulai = time.perf_counter()
+
     result = get_service().jawab(
         payload.question,
         rt_id=payload.rt_id,
@@ -100,6 +148,15 @@ def query(payload: ChatRequest):
             dok.model_dump()
             for dok in payload.local_documents
         ]
+    )
+
+    # Isi pertanyaan sengaja TIDAK dicatat (bisa berisi data pribadi)
+    logger.info(
+        "status=%s reason=%s panjang=%d ms=%.0f",
+        result["status"],
+        result["reason"],
+        len(payload.question),
+        (time.perf_counter() - mulai) * 1000
     )
 
     return {
