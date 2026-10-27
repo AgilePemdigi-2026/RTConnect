@@ -34,8 +34,10 @@ backend/__pycache__/
 backend/*/__pycache__/
 backend/uploads/generated_letters/*.pdf
 backend/uploads/attachments/*
+backend/uploads/signatures/*
 !backend/uploads/generated_letters/.gitkeep
 !backend/uploads/attachments/.gitkeep
+!backend/uploads/signatures/.gitkeep
 
 # ==========================================
 # Academic Documents, SRS, & UTS (Non-Runtime)

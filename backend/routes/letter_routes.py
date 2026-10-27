@@ -6,6 +6,48 @@ from io import BytesIO
 from pathlib import PurePosixPath
 from flask import Blueprint, request, jsonify, send_file
 import bcrypt
+import threading
+import time
+
+MAX_PIN_ATTEMPTS = 5
+PIN_LOCKOUT_SECONDS = 15 * 60  # 15 menit
+
+_pin_lock = threading.Lock()
+_pin_attempt_tracker = {}
+
+def get_pin_lockout_status(user_id: int):
+    with _pin_lock:
+        state = _pin_attempt_tracker.get(user_id)
+        if not state:
+            return False, 0, 0, 0
+        locked_until = state.get('locked_until')
+        now = time.time()
+        if locked_until:
+            if now < locked_until:
+                remaining_seconds = int(locked_until - now)
+                remaining_minutes = max(1, (remaining_seconds + 59) // 60)
+                return True, remaining_seconds, remaining_minutes, state.get('failed_attempts', 0)
+            else:
+                del _pin_attempt_tracker[user_id]
+                return False, 0, 0, 0
+        return False, 0, 0, state.get('failed_attempts', 0)
+
+def record_pin_failure(user_id: int):
+    with _pin_lock:
+        state = _pin_attempt_tracker.setdefault(user_id, {'failed_attempts': 0, 'locked_until': None})
+        state['failed_attempts'] += 1
+        if state['failed_attempts'] >= MAX_PIN_ATTEMPTS:
+            state['locked_until'] = time.time() + PIN_LOCKOUT_SECONDS
+            lockout_minutes = (PIN_LOCKOUT_SECONDS + 59) // 60
+            return True, 0, lockout_minutes, PIN_LOCKOUT_SECONDS
+        else:
+            remaining_attempts = MAX_PIN_ATTEMPTS - state['failed_attempts']
+            return False, remaining_attempts, 0, 0
+
+def reset_pin_attempts(user_id: int):
+    with _pin_lock:
+        _pin_attempt_tracker.pop(user_id, None)
+
 from config import Config
 from database.db import query_all, query_one, execute
 from middleware.auth_middleware import jwt_required, roles_accepted
@@ -367,6 +409,24 @@ def sign_digital(id: int):
     API-011: Otorisasi digital PIN Ketua RT & pembuatan dokumen PDF resmi 
     dengan tempelan gambar tanda tangan digital (UC-09).
     """
+    rt_user = request.current_user
+    rt_user_id = rt_user.get('user_id') if isinstance(rt_user, dict) else None
+
+    # Proteksi brute-force: cek status lockout sebelum verifikasi PIN
+    if rt_user_id:
+        is_locked, remaining_seconds, remaining_minutes, _ = get_pin_lockout_status(rt_user_id)
+        if is_locked:
+            return jsonify({
+                'success': False,
+                'message': f'Akun terkunci sementara karena {MAX_PIN_ATTEMPTS} kali salah memasukkan PIN. Silakan coba lagi dalam {remaining_minutes} menit.',
+                'data': {
+                    'sisa_percobaan': 0,
+                    'sisa_menit': remaining_minutes,
+                    'sisa_detik': remaining_seconds
+                },
+                'error': 'PIN_LOCKED'
+            }), 429
+
     parsed_data = request.get_json(silent=True)
     data = parsed_data if isinstance(parsed_data, dict) else {}
     pin_value = data.get('pin', '')
@@ -384,13 +444,39 @@ def sign_digital(id: int):
         pin_is_valid = bcrypt.checkpw(pin.encode('utf-8'), Config.RT_SIGNING_PIN_HASH.encode('utf-8'))
     except ValueError:
         pin_is_valid = False
+
     if not pin_is_valid:
+        if rt_user_id:
+            is_now_locked, remaining_attempts, lockout_minutes, lockout_seconds = record_pin_failure(rt_user_id)
+            if is_now_locked:
+                return jsonify({
+                    'success': False,
+                    'message': f'PIN salah {MAX_PIN_ATTEMPTS} kali berturut-turut. Akses otorisasi dikunci selama {lockout_minutes} menit.',
+                    'data': {
+                        'sisa_percobaan': 0,
+                        'sisa_menit': lockout_minutes,
+                        'sisa_detik': lockout_seconds
+                    },
+                    'error': 'PIN_LOCKED'
+                }), 429
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': f'PIN Otorisasi Ketua RT salah. Sisa percobaan: {remaining_attempts}',
+                    'data': {
+                        'sisa_percobaan': remaining_attempts
+                    },
+                    'error': 'INVALID_PIN'
+                }), 401
         return jsonify({
             'success': False,
             'message': 'PIN Otorisasi Ketua RT salah',
             'data': None,
             'error': 'INVALID_PIN'
         }), 401
+
+    if rt_user_id:
+        reset_pin_attempts(rt_user_id)
 
     app_data = query_one(
         """SELECT p.*, j.kode_surat, j.nama_surat,
@@ -431,7 +517,8 @@ def sign_digital(id: int):
     rel_pdf_path = f"generated_letters/{pdf_filename}"
     try:
         with open(pdf_path, 'rb') as generated_pdf:
-            store_bytes(rel_pdf_path, generated_pdf.read(), 'application/pdf')
+            pdf_bytes = generated_pdf.read()
+        store_bytes(rel_pdf_path, pdf_bytes, 'application/pdf')
     finally:
         if Config.STORAGE_BACKEND == 's3' and os.path.exists(pdf_path):
             os.remove(pdf_path)
