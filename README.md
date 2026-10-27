@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 <div align="center">
+=======
+# RTConnect
+>>>>>>> b4a6ea53a18aefea453f0c736759e65a7941b085
 
 <img src="docs/assets/rtconnect-logo.svg" alt="RTConnect — Perangkat Lunak Administrasi di Tingkat RT/RW dengan Integrasi NLP dan Generative AI" width="520">
 
