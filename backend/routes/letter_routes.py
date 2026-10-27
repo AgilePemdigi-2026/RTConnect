@@ -53,7 +53,7 @@ from database.db import query_all, query_one, execute
 from middleware.auth_middleware import jwt_required, roles_accepted
 from services.ai_draft_service import generate_letter_draft
 from services.file_storage import read_bytes, store_bytes, store_upload
-from services.pdf_service import generate_official_letter_pdf
+from services.pdf_service import generate_official_letter_pdf, generate_official_letter_pdf_bytes
 
 letter_bp = Blueprint('letters', __name__, url_prefix='/api/v1/letters')
 
@@ -503,26 +503,17 @@ def sign_digital(id: int):
         }), 409
     nomor_resmi = generate_nomor_surat_resmi(app_data['kode_surat'])
 
-    # Buat PDF resmi dengan tempelan gambar tanda tangan digital
+    # Buat PDF resmi dengan tempelan gambar tanda tangan digital langsung di memori (S3/stateless ready)
     pdf_filename = f"Surat_{app_data['nomor_pengajuan']}_{id}.pdf"
-    pdf_path = generate_official_letter_pdf(
+    rel_pdf_path = f"generated_letters/{pdf_filename}"
+    pdf_bytes = generate_official_letter_pdf_bytes(
         application=app_data,
         resident=app_data,
         letter_type={'nama_surat': app_data['nama_surat'], 'kode_surat': app_data['kode_surat']},
         official_letter_number=nomor_resmi,
         rt_user=rt_user,
-        output_filename=pdf_filename
     )
-
-    rel_pdf_path = f"generated_letters/{pdf_filename}"
-    if Config.STORAGE_BACKEND == 's3':
-        try:
-            with open(pdf_path, 'rb') as generated_pdf:
-                pdf_bytes = generated_pdf.read()
-            store_bytes(rel_pdf_path, pdf_bytes, 'application/pdf')
-        finally:
-            if os.path.exists(pdf_path):
-                os.remove(pdf_path)
+    store_bytes(rel_pdf_path, pdf_bytes, 'application/pdf')
     token_verif = secrets.token_urlsafe(32)
 
     # Simpan atau update ke tabel surat_final

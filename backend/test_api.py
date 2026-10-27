@@ -251,8 +251,27 @@ def run_api_tests():
     assert res_read.status_code == 200
     print(f"[PASS] 20. Tandai Notifikasi Terbaca: OK -> Notifikasi #{first_notif_id} ditandai dibaca")
 
+    # 21. Validasi Integritas Cache Embedding RAG (AUD-10 / ROAD-05)
+    from chatbot.chatbot_service import validasi_integritas_cache
+    is_valid, reason = validasi_integritas_cache()
+    assert is_valid == True, f"Cache RAG tidak valid: {reason}"
+    print(f"[PASS] 21. Validasi Cache RAG (AUD-10): OK -> {reason}")
+
+    # 22. Uji Generator PDF Resmi In-Memory (Stateless & S3 Ready) (AUD-09 / ROAD-05)
+    from services.pdf_service import generate_official_letter_pdf_bytes
+    dummy_pdf = generate_official_letter_pdf_bytes(
+        application=apply_data,
+        resident=res_detail.get_json()['data'],
+        letter_type={'nama_surat': dom_type['nama_surat'], 'kode_surat': dom_type['kode_surat']},
+        official_letter_number=sign_data['nomor_surat_resmi'],
+        rt_user={'nama_lengkap': 'Test RT User', 'tanda_tangan_url': 'signatures/rt_indra_signature.png'}
+    )
+    assert isinstance(dummy_pdf, bytes)
+    assert dummy_pdf.startswith(b'%PDF-')
+    print(f"[PASS] 22. In-Memory PDF Generator (AUD-09): OK -> Berhasil menghasilkan {len(dummy_pdf)} bytes PDF valid")
+
     print("\n==================================================")
-    print("  SELURUH 20 PENGUJIAN SISTEM LENGKAP BERHASIL 100%! ")
+    print("  SELURUH 22 PENGUJIAN SISTEM LENGKAP BERHASIL 100%! ")
     print("==================================================")
 
 if __name__ == '__main__':

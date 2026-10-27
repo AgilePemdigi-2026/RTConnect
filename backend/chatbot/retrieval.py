@@ -169,7 +169,19 @@ def aksi_dokumen(item):
 
 
 # Memuat dataset dan embedding
-def muat_retrieval():
+def muat_retrieval(auto_sync=True):
+    if auto_sync:
+        try:
+            from .chatbot_service import pastikan_cache_tersinkronisasi
+        except ImportError:
+            try:
+                from chatbot_service import pastikan_cache_tersinkronisasi
+            except ImportError:
+                import sys
+                sys.path.insert(0, str(Path(__file__).parent))
+                from chatbot_service import pastikan_cache_tersinkronisasi
+        pastikan_cache_tersinkronisasi()
+
     data = baca_dataset()
     referensi = pilih_referensi(data)
 
