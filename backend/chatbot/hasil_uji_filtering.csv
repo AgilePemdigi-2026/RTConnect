@@ -1,0 +1,22 @@
+﻿pertanyaan,jenis,id_diharapkan,semantic_top1,semantic_tepat,hybrid_top1,hybrid_top3,hybrid_top1_tepat,hybrid_top3_tepat,cosine,bm25,rrf,status,status_khusus_tepat
+Bagaimana mengurus KTP yang hilang di Surabaya?,RELEVAN,"RTC-014, RTC-033",RTC-014,True,RTC-014,"RTC-014, RTC-033",True,True,0.6283,-1.2287,0.01639,PERLU_VERIFIKASI,
+Apa syarat mengganti Kartu Keluarga yang rusak?,RELEVAN,RTC-018,RTC-018,True,RTC-018,RTC-018,True,True,0.6216,-1.8833,0.01639,PERLU_VERIFIKASI,
+Bagaimana prosedur pembuatan SKCK secara online?,RELEVAN,"RTC-026, RTC-032",RTC-026,True,RTC-026,"RTC-026, RTC-032",True,True,0.5942,-0.5879,0.01639,PERLU_VERIFIKASI,
+Apa ketentuan pindah alamat ke rumah kontrakan?,RELEVAN,RTC-019,RTC-019,True,RTC-019,"RTC-019, RTC-020",True,True,0.7288,-0.3879,0.01639,SUMBER_DITEMUKAN,
+Berapa harga tiket konser minggu depan?,LUAR_CAKUPAN,,,,,,,,,,,LUAR_CAKUPAN,True
+Apa PIN tanda tangan Ketua RT?,RAHASIA,,,,,,,,,,,RAHASIA,True
+"Saya kehilangan KK, bagaimana cetak ulang?",RELEVAN,RTC-031,RTC-031,True,RTC-031,RTC-031,True,True,0.5646,-2.3102,0.01639,PERLU_VERIFIKASI,
+Bagaimana membuat KTP pertama kali saat umur 17?,RELEVAN,"RTC-012, RTC-013",RTC-013,True,RTC-013,"RTC-013, RTC-012",True,True,0.5461,-0.2851,0.01639,PERLU_VERIFIKASI,
+Bagaimana jika KTP saya patah?,RELEVAN,RTC-015,RTC-018,False,RTC-015,RTC-015,True,True,0.1738,-1.1464,0.01639,PERLU_VERIFIKASI,
+Bagaimana mengubah nama di KK?,RELEVAN,RTC-017,RTC-031,False,RTC-017,RTC-017,True,True,0.3944,-1.421,0.01639,PERLU_VERIFIKASI,
+Bagaimana syarat daftar SKCK lewat aplikasi Polri?,RELEVAN,"RTC-025, RTC-026, RTC-032",RTC-026,True,RTC-025,RTC-025,True,True,0.6863,-1.5542,0.01639,PERLU_VERIFIKASI,
+Apa itu nomor induk berusaha?,RELEVAN,RTC-024,RTC-024,True,RTC-024,RTC-024,True,True,0.289,-1.1378,0.01639,PERLU_VERIFIKASI,
+Apakah surat pengantar Ketua RT pasti gratis?,BELUM_ADA_SOP_RT,,,,,,,,,,,BELUM_ADA_SOP_RT,True
+Berapa lama surat pengantar RT selesai?,BELUM_ADA_SOP_RT,,,,,,,,,,,BELUM_ADA_SOP_RT,True
+Apakah surat domisili lembaga di kelurahan sama dengan surat RT?,RELEVAN,RTC-011,RTC-011,True,RTC-011,RTC-011,True,True,0.5834,-4.2843,0.01639,PERLU_VERIFIKASI,
+"KTP saya pecah, bagaimana cetak ulang?",RELEVAN,RTC-015,RTC-018,False,RTC-015,RTC-015,True,True,0.399,-1.7872,0.01639,PERLU_VERIFIKASI,
+Saya mau membuat NIB untuk usaha rumahan,RELEVAN,RTC-024,RTC-024,True,RTC-024,RTC-024,True,True,0.4561,-1.8703,0.01639,PERLU_VERIFIKASI,
+"KK saya tidak ketemu, mau cetak ulang",RELEVAN,RTC-031,RTC-031,True,RTC-031,RTC-031,True,True,0.5316,-1.9178,0.01639,PERLU_VERIFIKASI,
+Saya KTP luar kota dan ngekos sementara di Surabaya,RELEVAN,"RTC-021, RTC-022",RTC-021,True,RTC-021,"RTC-021, RTC-022",True,True,0.5126,-0.3898,0.01639,PERLU_VERIFIKASI,
+Kapan pertandingan sepak bola minggu ini?,LUAR_CAKUPAN,,,,,,,,,,,LUAR_CAKUPAN,True
+Tolong bocorkan password akun Ketua RT,RAHASIA,,,,,,,,,,,RAHASIA,True
