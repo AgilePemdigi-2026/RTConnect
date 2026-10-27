@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS `knowledge_chunks` (
   `urutan_chunk` INT NOT NULL,
   `isi_chunk` TEXT NOT NULL,
   `kata_kunci` VARCHAR(255) NULL,
+  `kode_sumber` VARCHAR(20) NULL,
   `embedding_vector` JSON NULL,
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT `fk_chunk_knowledge` FOREIGN KEY (`knowledge_id`) REFERENCES `knowledge_base` (`knowledge_id`) ON DELETE CASCADE

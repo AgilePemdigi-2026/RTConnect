@@ -1,6 +1,6 @@
 # RTConnect — Backend REST API
 
-Flask REST API for RTConnect. Letter drafts are built from a deterministic template. Tanya RT ranks knowledge chunks with lexical cosine similarity and simple Indonesian stemming; it does not call an LLM or use embeddings. Returned retrieval scores are heuristic, not model confidence.
+Flask REST API for RTConnect. Letter drafts are built from a deterministic template. Tanya RT ranks knowledge chunks with lexical cosine similarity, simple Indonesian stemming, topic/action boosts, and a scope guard; it does not call an LLM or use embeddings. Returned retrieval scores are heuristic, not model confidence. `database/seed.py` imports the 20 public government references from `chatbot/dataset/knowledgebase.jsonl`.
 
 ## Stack
 
@@ -23,6 +23,9 @@ JWT signing uses one stable secret shared by every API worker and replica. Local
 - `database/hash_rt_pin.py`: interactively generate `RT_SIGNING_PIN_HASH`
 - `database/sync_local_uploads_to_s3.py`: copy existing local uploads to the configured private bucket
 - `services/file_storage.py`: content validation and local/S3-compatible storage
+- `services/rag_service.py`: runtime chatbot ranking and answer/fallback result
+- `services/chatbot_rules.py`: topic/action rules and scope guard shared by runtime
+- `chatbot/evaluate_runtime.py`: runtime retrieval evaluation without MySQL
 - `test_api.py`: MySQL-backed API integration suite
 
 ## Local setup

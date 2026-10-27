@@ -1,4 +1,7 @@
+import json
 import os
+from pathlib import Path
+
 import bcrypt
 
 from config import Config
@@ -11,6 +14,81 @@ except ImportError:
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+
+def _load_public_references():
+    dataset_path = (
+        Path(__file__).resolve().parent.parent
+        / 'chatbot'
+        / 'dataset'
+        / 'knowledgebase.jsonl'
+    )
+    if not dataset_path.exists():
+        print(f"  [!] Dataset referensi tidak ditemukan: {dataset_path}")
+        return []
+
+    documents = []
+    with dataset_path.open('r', encoding='utf-8') as file:
+        for line in file:
+            line = line.strip()
+            if line:
+                documents.append(json.loads(line))
+
+    return [
+        document for document in documents
+        if document.get('jenis_sumber') == 'pemerintah'
+        and document.get('kelayakan_rag') == 'REFERENSI_PUBLIK_DENGAN_LABEL_INSTANSI'
+    ]
+
+def _seed_public_references(rt_id):
+    references = _load_public_references()
+    if not references:
+        return 0, 0
+
+    inserted = 0
+    linked = 0
+    for document in references:
+        source_id = document.get('id')
+        judul = document.get('judul')
+        konten = document.get('konten')
+        if not source_id or not judul or not konten:
+            continue
+
+        existing = query_one(
+            "SELECT knowledge_id FROM knowledge_base WHERE judul_dokumen = %s",
+            (judul,),
+        )
+        if existing:
+            # Dokumen lama mungkin dibuat sebelum kolom kode_sumber ada.
+            execute(
+                """UPDATE knowledge_chunks
+                   SET kode_sumber = %s
+                   WHERE knowledge_id = %s
+                     AND (kode_sumber IS NULL OR kode_sumber = '')""",
+                (source_id, existing['knowledge_id']),
+            )
+            linked += 1
+            continue
+
+        kategori = (document.get('kategori') or 'referensi_publik')[:50]
+        keywords = list(document.get('kata_kunci') or [])
+        keywords.extend(document.get('contoh_pertanyaan') or [])
+        kata_kunci = (' '.join(keywords) or judul)[:255]
+
+        knowledge_id = execute(
+            """INSERT INTO knowledge_base
+               (judul_dokumen, kategori, isi_dokumen, diunggah_oleh_rt)
+               VALUES (%s, %s, %s, %s)""",
+            (judul, kategori, konten, rt_id),
+        )
+        execute(
+            """INSERT INTO knowledge_chunks
+               (knowledge_id, urutan_chunk, isi_chunk, kata_kunci, kode_sumber)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (knowledge_id, 1, konten, kata_kunci, source_id),
+        )
+        inserted += 1
+
+    return inserted, linked
 
 def seed_database(include_demo_users=None):
     if include_demo_users is None:
@@ -94,6 +172,13 @@ def seed_database(include_demo_users=None):
                     "INSERT INTO knowledge_chunks (knowledge_id, urutan_chunk, isi_chunk, kata_kunci) VALUES (%s, %s, %s, %s)",
                     (kb_id, idx + 1, chunk, judul)
                 )
+
+    # 4. Referensi publik pemerintah untuk pertanyaan KTP/KK/SKCK/NIB.
+    inserted, linked = _seed_public_references(rt_id)
+    print(
+        f"  [+] Referensi publik: {inserted} dokumen baru, "
+        f"{linked} dokumen lama ditautkan metadata sumbernya"
+    )
 
     print("[SUCCESS] Seeding basis data RTConnect berhasil!")
 

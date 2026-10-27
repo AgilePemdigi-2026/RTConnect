@@ -150,7 +150,7 @@ class _PinKeamananDialogState extends State<_PinKeamananDialog> {
               child: FilledButton.icon(
                 style: FilledButton.styleFrom(
                   backgroundColor: RtColors.success,
-                  disabledBackgroundColor: RtColors.success.withOpacity(0.45),
+                  disabledBackgroundColor: RtColors.success.withValues(alpha: 0.45),
                   disabledForegroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
@@ -225,7 +225,7 @@ class _PinKeamananDialogState extends State<_PinKeamananDialog> {
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                     color: _error != null && !terisi
-                        ? RtColors.danger.withOpacity(0.5)
+                        ? RtColors.danger.withValues(alpha: 0.5)
                         : aktif
                             ? RtColors.primary
                             : const Color(0xFFD9DCE3),
