@@ -85,6 +85,25 @@ def _apply_chatbot_metadata_migration(cursor):
         )
 
 
+def _apply_signing_security_migration(cursor):
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS `nomor_surat_counter` (
+            `tahun` SMALLINT UNSIGNED NOT NULL PRIMARY KEY,
+            `last_number` INT UNSIGNED NOT NULL DEFAULT 0
+        ) ENGINE=InnoDB"""
+    )
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS `rt_pin_attempts` (
+            `rt_id` INT NOT NULL PRIMARY KEY,
+            `gagal_count` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            `locked_until` DATETIME NULL,
+            `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            CONSTRAINT `fk_pin_attempts_user` FOREIGN KEY (`rt_id`)
+                REFERENCES `users` (`user_id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB"""
+    )
+
+
 def migrate():
     connection = get_connection(migration=True)
     try:
@@ -111,6 +130,11 @@ def migrate():
             if version < 3:
                 _apply_chatbot_metadata_migration(cursor)
                 cursor.execute(f'INSERT INTO `{MIGRATION_TABLE}` (version) VALUES (3)')
+                version = 3
+
+            if version < 4:
+                _apply_signing_security_migration(cursor)
+                cursor.execute(f'INSERT INTO `{MIGRATION_TABLE}` (version) VALUES (4)')
 
         print('Database migrations completed.')
     finally:

@@ -1041,9 +1041,15 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
                       namaWarga: namaWarga,
                       namaSurat: namaSurat,
                       onConfirm: (pin) async {
-                        return await ref
+                        final ok = await ref
                             .read(letterSubmitControllerProvider.notifier)
                             .signDigital(widget.applicationId, pin);
+                        if (!ok) {
+                          // Tampilkan pesan server (PIN salah + sisa percobaan / PIN terkunci)
+                          throw ref.read(letterSubmitControllerProvider).errorMessage ??
+                              'PIN tidak valid atau otorisasi gagal';
+                        }
+                        return true;
                       },
                     );
                     if (success == true && context.mounted) {

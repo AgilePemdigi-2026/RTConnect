@@ -115,6 +115,21 @@ CREATE TABLE IF NOT EXISTS `chat_messages` (
   CONSTRAINT `fk_message_chunk` FOREIGN KEY (`top_chunk_id`) REFERENCES `knowledge_chunks` (`chunk_id`) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
+-- 4a. COUNTER NOMOR SURAT RESMI (nomor urut unik per tahun)
+CREATE TABLE IF NOT EXISTS `nomor_surat_counter` (
+  `tahun` SMALLINT UNSIGNED NOT NULL PRIMARY KEY,
+  `last_number` INT UNSIGNED NOT NULL DEFAULT 0
+) ENGINE=InnoDB;
+
+-- 4b. PERCOBAAN PIN PENGESAHAN KETUA RT (kunci 15 menit setelah 5 kali salah)
+CREATE TABLE IF NOT EXISTS `rt_pin_attempts` (
+  `rt_id` INT NOT NULL PRIMARY KEY,
+  `gagal_count` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  `locked_until` DATETIME NULL,
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_pin_attempts_user` FOREIGN KEY (`rt_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 -- 6. TABEL NOTIFIKASI
 CREATE TABLE IF NOT EXISTS `notifikasi` (
   `notifikasi_id` INT AUTO_INCREMENT PRIMARY KEY,

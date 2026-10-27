@@ -51,9 +51,9 @@ class _PinAuthDialogState extends State<PinAuthDialog> {
 
   Future<void> _handleConfirm() async {
     final pin = _pinController.text.trim();
-    if (pin.length < 4) {
+    if (pin.length != 6) {
       setState(() {
-        _errorMessage = 'PIN keamanan minimal 4 digit';
+        _errorMessage = 'PIN keamanan harus 6 digit';
       });
       return;
     }
