@@ -94,7 +94,9 @@ for pertanyaan, jenis, id_benar in kasus_uji:
 
 
 # Menyimpan hasil
-output = Path(__file__).parent / "hasil_uji_hybrid.csv"
+output_dir = Path(__file__).parent / "evaluation_results"
+output_dir.mkdir(parents=True, exist_ok=True)
+output = output_dir / "hasil_uji_hybrid.csv"
 
 with open(output, "w", newline="", encoding="utf-8-sig") as file:
     writer = csv.DictWriter(

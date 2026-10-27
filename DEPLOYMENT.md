@@ -84,6 +84,17 @@ https://api.example.com/api/v1/health
 
 A healthy response means the API can connect to MySQL. The endpoint does not reveal connection details on failure.
 
+### PaaS deployment (Procfile)
+
+For platforms using buildpacks with a Procfile (such as Railway or Render), configure the service's **Root Directory** to `backend/`. The backend directory contains the single active `backend/Procfile`:
+
+```text
+release: python -m database.migrate
+web: gunicorn --workers 2 --threads 4 --timeout 60 -b 0.0.0.0:$PORT app:app
+```
+
+The `release` command executes database migrations before incoming traffic shifts to the new version, and the `web` process runs Gunicorn bound to the platform's assigned `$PORT`.
+
 ## 5. Publish Flutter clients
 
 The API URL must include `/api/v1` and use HTTPS:

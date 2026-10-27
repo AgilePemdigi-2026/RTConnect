@@ -515,13 +515,14 @@ def sign_digital(id: int):
     )
 
     rel_pdf_path = f"generated_letters/{pdf_filename}"
-    try:
-        with open(pdf_path, 'rb') as generated_pdf:
-            pdf_bytes = generated_pdf.read()
-        store_bytes(rel_pdf_path, pdf_bytes, 'application/pdf')
-    finally:
-        if Config.STORAGE_BACKEND == 's3' and os.path.exists(pdf_path):
-            os.remove(pdf_path)
+    if Config.STORAGE_BACKEND == 's3':
+        try:
+            with open(pdf_path, 'rb') as generated_pdf:
+                pdf_bytes = generated_pdf.read()
+            store_bytes(rel_pdf_path, pdf_bytes, 'application/pdf')
+        finally:
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
     token_verif = secrets.token_urlsafe(32)
 
     # Simpan atau update ke tabel surat_final
