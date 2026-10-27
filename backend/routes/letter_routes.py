@@ -5,13 +5,14 @@ import datetime
 from io import BytesIO
 from pathlib import PurePosixPath
 from flask import Blueprint, request, jsonify, send_file
-import bcrypt
 from config import Config
 from database.db import query_all, query_one, execute
 from middleware.auth_middleware import jwt_required, roles_accepted
 from services.ai_draft_service import generate_letter_draft
 from services.file_storage import read_bytes, store_bytes, store_upload
+from services.letter_number_service import generate_unique_letter_number
 from services.pdf_service import generate_official_letter_pdf
+from services.pin_guard_service import verify_signing_pin
 
 letter_bp = Blueprint('letters', __name__, url_prefix='/api/v1/letters')
 
@@ -21,11 +22,8 @@ def generate_nomor_pengajuan() -> str:
     return f"SRT-{year}-{rand_id}"
 
 def generate_nomor_surat_resmi(jenis_kode: str) -> str:
-    now = datetime.datetime.now()
-    roman_months = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII']
-    month_roman = roman_months[now.month - 1]
-    rand_seq = random.randint(100, 999)
-    return f"{Config.RT_NUMBER}/{Config.RW_NUMBER}/{Config.RT_LETTER_CODE}/{jenis_kode}/{rand_seq}/{month_roman}/{now.year}"
+    # Nomor urut berurutan per tahun (bukan acak) agar selalu unik.
+    return generate_unique_letter_number(jenis_kode)
 
 @letter_bp.route('/types', methods=['GET'])
 @jwt_required
@@ -299,7 +297,9 @@ def submit_decision(id: int):
 
     if action == 'approve':
         status = 'disetujui'
-        nomor_resmi = generate_nomor_surat_resmi(app_data['kode_surat'])
+        # Nomor surat resmi diterbitkan saat pengesahan (sign-digital) agar
+        # nomor urut tidak terpakai oleh surat yang belum disahkan.
+        nomor_resmi = None
         execute(
             "UPDATE pengajuan_surat SET status = %s, rt_id = %s, tanggal_diverifikasi = %s WHERE pengajuan_id = %s",
             (status, rt_user['user_id'], now, id)
@@ -380,17 +380,24 @@ def sign_digital(id: int):
             'error': 'SIGNING_NOT_CONFIGURED'
         }), 503
 
-    try:
-        pin_is_valid = bcrypt.checkpw(pin.encode('utf-8'), Config.RT_SIGNING_PIN_HASH.encode('utf-8'))
-    except ValueError:
-        pin_is_valid = False
-    if not pin_is_valid:
+    if not pin.isdigit() or len(pin) != 6:
         return jsonify({
             'success': False,
-            'message': 'PIN Otorisasi Ketua RT salah',
+            'message': 'PIN harus 6 digit angka',
             'data': None,
-            'error': 'INVALID_PIN'
-        }), 401
+            'error': 'VALIDATION_ERROR'
+        }), 400
+
+    # Verifikasi PIN + kunci 15 menit setelah 5 kali salah. Status 403/423
+    # (bukan 401) agar sesi login Ketua RT tidak ikut dihapus aplikasi.
+    pin_check = verify_signing_pin(request.current_user['user_id'], pin)
+    if not pin_check.ok:
+        return jsonify({
+            'success': False,
+            'message': pin_check.message,
+            'data': pin_check.data(),
+            'error': pin_check.error
+        }), pin_check.http_status
 
     app_data = query_one(
         """SELECT p.*, j.kode_surat, j.nama_surat,
@@ -415,7 +422,12 @@ def sign_digital(id: int):
             'data': None,
             'error': 'SIGNATURE_NOT_CONFIGURED'
         }), 409
-    nomor_resmi = generate_nomor_surat_resmi(app_data['kode_surat'])
+    # Pakai ulang nomor yang sudah pernah terbit untuk pengajuan ini (jika ada)
+    existing_number = query_one("SELECT nomor_surat_resmi FROM surat_final WHERE pengajuan_id = %s", (id,))
+    nomor_resmi = (
+        existing_number['nomor_surat_resmi']
+        if existing_number else generate_nomor_surat_resmi(app_data['kode_surat'])
+    )
 
     # Buat PDF resmi dengan tempelan gambar tanda tangan digital
     pdf_filename = f"Surat_{app_data['nomor_pengajuan']}_{id}.pdf"

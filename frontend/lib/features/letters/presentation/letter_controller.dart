@@ -1,4 +1,6 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/errors/app_exception.dart';
 import '../data/letter_repository.dart';
 
 final letterRepositoryProvider = Provider<LetterRepository>((ref) {
@@ -109,7 +111,11 @@ class LetterSubmitController extends StateNotifier<LetterSubmitState> {
       _ref.invalidate(applicationDetailProvider(id));
       return true;
     } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+      // Ambil pesan server (PIN salah + sisa percobaan / PIN terkunci)
+      final message = (e is DioException && e.error is AppException)
+          ? (e.error as AppException).message
+          : e.toString();
+      state = state.copyWith(isLoading: false, errorMessage: message);
       return false;
     }
   }
