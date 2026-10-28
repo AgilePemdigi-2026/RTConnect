@@ -1,0 +1,75 @@
+@sprint1 @issue-9 @auth
+Feature: [Issue #9] Fitur Register & Login Sesuai Peran (Warga & Ketua RT)
+  As a resident or RT administrator
+  I want to register and authenticate securely into RTConnect
+  So that I can access administrative services according to my verified role
+
+  Background:
+    Given the RTConnect backend application is ready
+
+  Scenario: Registrasi akun warga baru dengan identitas lengkap dan valid
+    Given I prepare a unique citizen registration payload:
+      | field          | value                          |
+      | nama_lengkap   | Ahmad Fauzi                    |
+      | email_prefix   | fauzi                          |
+      | password       | PasswordKuat#2026              |
+      | nomor_telepon  | 081234567890                   |
+      | alamat         | Jl. Melati No. 12 RT 05 RW 02  |
+    When I send a POST request to "/api/v1/auth/register" with the payload
+    Then the response status code should be 201
+    And the response JSON should indicate success
+    And the response field "data.role" should be "warga"
+    And the registered user should exist in the database with role "warga"
+
+  Scenario Outline: Registrasi warga gagal karena format data tidak memenuhi validasi
+    Given I prepare a citizen registration payload with NIK "<nik>", email "<email>", and password "<password>"
+    When I send a POST request to "/api/v1/auth/register" with the payload
+    Then the response status code should be 400
+    And the response JSON should indicate failure
+    And the response field "error" should be "<error_code>"
+
+    Examples:
+      | nik              | email                   | password          | error_code       |
+      | 12345            | valid_test@example.com  | PasswordKuat#2026 | INVALID_NIK      |
+      | 3515082104990099 | invalid-email-format    | PasswordKuat#2026 | INVALID_PROFILE  |
+      | 3515082104990099 | valid_test@example.com  | short             | INVALID_PASSWORD |
+
+  Scenario: Registrasi warga gagal akibat duplikasi NIK atau email yang sudah terdaftar
+    Given an existing resident user with email "resident@example.test" is registered
+    When I submit a registration with an already registered email "resident@example.test"
+    Then the response status code should be 400
+    And the response JSON should indicate failure
+    And the response field "error" should be "DUPLICATE_ENTRY"
+
+  Scenario: Login berhasil sebagai Warga dengan kredensial valid
+    When I authenticate with identity "resident@example.test" and password "LocalTestOnly#2026"
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response should contain a valid JWT token
+    And the response field "data.user.role" should be "warga"
+
+  Scenario: Login berhasil sebagai Ketua RT dengan kredensial valid
+    When I authenticate with identity "rt@example.test" and password "LocalTestOnly#2026"
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response should contain a valid JWT token
+    And the response field "data.user.role" should be "rt"
+
+  Scenario: Login gagal jika password salah
+    When I authenticate with identity "resident@example.test" and password "WrongPassword#999"
+    Then the response status code should be 401
+    And the response JSON should indicate failure
+    And the response field "error" should be "UNAUTHORIZED"
+
+  Scenario: Mengakses endpoint profil diri /api/v1/auth/me dengan token valid
+    Given I am authenticated as "resident@example.test" with password "LocalTestOnly#2026"
+    When I send an authenticated GET request to "/api/v1/auth/me"
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response field "data.email" should be "resident@example.test"
+
+  Scenario: Akses endpoint terproteksi ditolak tanpa token autentikasi
+    When I send an unauthenticated GET request to "/api/v1/auth/me"
+    Then the response status code should be 401
+    And the response JSON should indicate failure
+    And the response field "error" should be "UNAUTHORIZED"

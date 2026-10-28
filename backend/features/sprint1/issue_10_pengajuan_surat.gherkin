@@ -1,0 +1,71 @@
+@sprint1 @issue-10 @letters
+Feature: [Issue #10] Fitur Mengajukan Surat Pengantar oleh Warga
+  As a registered resident
+  I want to submit an administrative letter application with supporting documents from home
+  So that the RT administration can review my request without requiring physical paperwork
+
+  Background:
+    Given the RTConnect backend application is ready
+    And I am authenticated as "resident@example.test" with password "LocalTestOnly#2026"
+
+  Scenario: Mengambil daftar jenis surat master yang aktif
+    When I send an authenticated GET request to "/api/v1/letters/types"
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response field "data" should be a non-empty list
+    And the list should contain a letter type with code "DOM"
+
+  Scenario: Warga berhasil mengajukan surat keterangan domisili dengan metode tanda tangan digital
+    Given an active letter type exists with code "DOM"
+    When I submit a letter application with:
+      | field                | value                                              |
+      | kode_surat           | DOM                                                |
+      | keperluan            | Persyaratan pembukaan rekening bank syariah cabang |
+      | metode_tanda_tangan  | digital                                            |
+    Then the response status code should be 201
+    And the response JSON should indicate success
+    And the response field "data.status" should be "diajukan"
+    And the response field "data.nomor_pengajuan" should match pattern "SRT-[0-9]{4}-[0-9]{5}"
+    And the response field "data.draf_ai" should not be empty
+    And a notification for "Pengajuan Surat Baru" should be recorded for the RT Head
+
+  Scenario: Warga berhasil mengajukan permohonan surat dengan metode tanda tangan basah
+    Given an active letter type exists with code "KTP"
+    When I submit a letter application with:
+      | field                | value                                              |
+      | kode_surat           | KTP                                                |
+      | keperluan            | Pengantar perpanjangan KTP fisik di balai RW       |
+      | metode_tanda_tangan  | basah                                              |
+    Then the response status code should be 201
+    And the response JSON should indicate success
+    And the response field "data.status" should be "diajukan"
+
+  Scenario: Pengajuan surat gagal jika keperluan permohonan dikosongkan
+    Given an active letter type exists with code "DOM"
+    When I submit a letter application with:
+      | field                | value   |
+      | kode_surat           | DOM     |
+      | keperluan            |         |
+      | metode_tanda_tangan  | digital |
+    Then the response status code should be 400
+    And the response JSON should indicate failure
+    And the response field "error" should be "VALIDATION_ERROR"
+
+  Scenario: Pengajuan surat gagal jika jenis surat tidak valid atau tidak ditemukan
+    When I submit a letter application with non-existent letter type ID 99999
+    Then the response status code should be 404
+    And the response JSON should indicate failure
+    And the response field "error" should be "NOT_FOUND"
+
+  Scenario: Warga dapat melihat riwayat seluruh permohonan surat miliknya
+    When I send an authenticated GET request to "/api/v1/letters/my-applications"
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response field "data" should be a non-empty list
+
+  Scenario: Warga memeriksa rincian detail pengajuan surat tertentu
+    Given an existing letter application exists for "resident@example.test"
+    When I send an authenticated GET request for the application detail
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response field "data.keperluan" should not be empty
