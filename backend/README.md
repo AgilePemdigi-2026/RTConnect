@@ -73,3 +73,19 @@ Demo users can only be seeded when `SEED_DEMO_USERS=true` outside production. Pr
 | GET | `/api/v1/notifications` | Authenticated |
 
 The GitHub Actions workflow compiles the backend Python files and analyzes Flutter code. It can build the web release artifact and signed Android APK/AAB when the repository variables and signing secrets are configured. The MySQL-backed API integration script is available for manual use in an isolated test database.
+
+## Behavior-Driven Development (BDD)
+
+Skenario pengujian BDD berformat Gherkin (`.gherkin`) yang diselaraskan dengan GitHub Issues dikelola dalam folder `features/`:
+
+```powershell
+# Menjalankan seluruh skenario BDD
+cd backend
+python run_bdd.py
+
+# Menjalankan skenario per sprint atau issue tertentu
+python run_bdd.py --tags=@sprint1
+python run_bdd.py --tags=@issue-9
+python run_bdd.py --tags=@issue-10
+python run_bdd.py --tags=@issue-11
+```

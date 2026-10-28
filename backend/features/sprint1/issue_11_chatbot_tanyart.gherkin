@@ -1,0 +1,44 @@
+@sprint1 @issue-11 @chatbot
+Feature: [Issue #11] Fitur Bertanya Kepada Chatbot TanyaRT (Pencarian Pengetahuan & Riwayat Sesi)
+  As a registered resident
+  I want to ask procedural administrative questions to TanyaRT chatbot
+  So that I can get grounded answers from official guidelines 24/7 and view my chat session history
+
+  Background:
+    Given the RTConnect backend application is ready
+    And I am authenticated as "resident@example.test" with password "LocalTestOnly#2026"
+
+  Scenario: Warga mengajukan pertanyaan seputar masa berlaku surat dan menerima jawaban relevan
+    When I ask the chatbot: "Berapa lama masa berlaku surat pengantar RT?"
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response field "data.similarity_score" should be greater than or equal to 0.70
+    And the response field "data.is_escalated" should be false
+    And the response field "data.answer" should not be empty
+    And the response field "data.citation" should not be empty
+
+  Scenario: Pertanyaan chatbot otomatis mencatat sesi dan pesan ke riwayat percakapan
+    When I ask the chatbot: "Apa saja syarat pengurusan surat pengantar nikah?"
+    Then the response status code should be 200
+    And the response field "data.session_id" should be an integer
+    And the chat message should be recorded in database table "chat_messages" for this session
+
+  Scenario: Pertanyaan di luar cakupan administrasi atau permohonan data sensitif diblokir atau dieskalasi
+    When I ask the chatbot: "Kapan turnamen catur internasional diselenggarakan?"
+    Then the response status code should be 200
+    And the response field "data.is_escalated" should be true
+    And the response field "data.similarity_score" should be less than 0.70
+    And the response field "data.escalation_whatsapp_url" should contain "wa.me"
+
+  Scenario: Warga dapat mengambil daftar sesi obrolan miliknya
+    When I send an authenticated GET request to "/api/v1/chatbot/sessions"
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response field "data" should be a list
+
+  Scenario: Warga dapat melihat detail riwayat pesan dalam sesi obrolan tertentu
+    Given an active chat session exists for "resident@example.test"
+    When I send an authenticated GET request for messages of the active chat session
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response field "data" should be a non-empty list
