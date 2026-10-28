@@ -32,3 +32,19 @@ def before_scenario(context, scenario):
     context.last_response = None
     context.last_json = None
     context.payload = {}
+
+def after_all(context):
+    """Clean up test records created during BDD execution."""
+    from database.db import execute
+    if getattr(context, 'created_letter_ids', None):
+        for pid in context.created_letter_ids:
+            execute("DELETE FROM surat_final WHERE pengajuan_id = %s", (pid,))
+            execute("DELETE FROM pengajuan_surat WHERE pengajuan_id = %s", (pid,))
+    if getattr(context, 'created_session_ids', None):
+        for sid in context.created_session_ids:
+            execute("DELETE FROM chat_messages WHERE session_id = %s", (sid,))
+            execute("DELETE FROM chat_sessions WHERE session_id = %s", (sid,))
+    if getattr(context, 'created_user_ids', None):
+        for uid in context.created_user_ids:
+            execute("DELETE FROM notifikasi WHERE penerima_id = %s", (uid,))
+            execute("DELETE FROM users WHERE user_id = %s", (uid,))
