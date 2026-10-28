@@ -1,10 +1,13 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-val releaseSigningProperties = java.util.Properties().apply {
+val releaseSigningProperties = Properties().apply {
     val propertiesFile = rootProject.file("key.properties")
     if (propertiesFile.exists()) {
         propertiesFile.inputStream().use { load(it) }

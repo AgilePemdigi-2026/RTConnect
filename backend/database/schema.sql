@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS `knowledge_chunks` (
   `urutan_chunk` INT NOT NULL,
   `isi_chunk` TEXT NOT NULL,
   `kata_kunci` VARCHAR(255) NULL,
+  `kode_sumber` VARCHAR(20) NULL,
   `embedding_vector` JSON NULL,
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT `fk_chunk_knowledge` FOREIGN KEY (`knowledge_id`) REFERENCES `knowledge_base` (`knowledge_id`) ON DELETE CASCADE
@@ -112,6 +113,21 @@ CREATE TABLE IF NOT EXISTS `chat_messages` (
   `waktu_kirim` DATETIME DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT `fk_message_session` FOREIGN KEY (`session_id`) REFERENCES `chat_sessions` (`session_id`) ON DELETE CASCADE,
   CONSTRAINT `fk_message_chunk` FOREIGN KEY (`top_chunk_id`) REFERENCES `knowledge_chunks` (`chunk_id`) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- 4a. COUNTER NOMOR SURAT RESMI (nomor urut unik per tahun)
+CREATE TABLE IF NOT EXISTS `nomor_surat_counter` (
+  `tahun` SMALLINT UNSIGNED NOT NULL PRIMARY KEY,
+  `last_number` INT UNSIGNED NOT NULL DEFAULT 0
+) ENGINE=InnoDB;
+
+-- 4b. PERCOBAAN PIN PENGESAHAN KETUA RT (kunci 15 menit setelah 5 kali salah)
+CREATE TABLE IF NOT EXISTS `rt_pin_attempts` (
+  `rt_id` INT NOT NULL PRIMARY KEY,
+  `gagal_count` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  `locked_until` DATETIME NULL,
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_pin_attempts_user` FOREIGN KEY (`rt_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- 6. TABEL NOTIFIKASI

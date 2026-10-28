@@ -1,379 +1,263 @@
-
 import json
-import re
 from pathlib import Path
 
 import numpy as np
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
-from preprocessing import baca_dataset, pilih_referensi
+
+try:
+    from .preprocessing import baca_dataset, pilih_referensi
+    from .embedding import MODEL, hitung_hash
+    from .rules import (
+        normalisasi,
+        tokenisasi_bm25,
+        semua_topik,
+        aksi_pertanyaan,
+        topik_dokumen,
+        aksi_dokumen,
+    )
+except ImportError:
+    from preprocessing import baca_dataset, pilih_referensi
+    from embedding import MODEL, hitung_hash
+    from rules import (
+        normalisasi,
+        tokenisasi_bm25,
+        semua_topik,
+        aksi_pertanyaan,
+        topik_dokumen,
+        aksi_dokumen,
+    )
+
+CACHE = Path(__file__).parent / "cache"
+
+K_RRF = 60
+
+# CATATAN: dengan korpus kecil, selisih RRF terbesar antar dokumen
+# hanya sekitar 0,008. Bonus topik 0,010 karena itu berfungsi sebagai
+# PRIORITAS TOPIK (dokumen bertopik cocok selalu di atas). Bonus aksi
+# 0,004 masih bisa dikalahkan oleh skor pencarian.
+BONUS_TOPIK = 0.010
+BONUS_AKSI = 0.004
+
+MODE = {"semantic", "bm25", "hybrid", "hybrid_aturan"}
 
 
-folder_cache = Path(__file__).parent / "cache"
-ambang = 0.70
+def _peringkat(skor, hanya_positif=False):
+    """Posisi 1..n tiap dokumen. Skor <= 0 tidak diberi posisi
+    jika hanya_positif=True (posisi = n + 1)."""
+    n = len(skor)
+    urutan = np.argsort(-skor, kind="stable")
+    posisi = np.empty(n, dtype=int)
+    posisi[urutan] = np.arange(1, n + 1)
 
-nama_model = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    if hanya_positif:
+        posisi[skor <= 0] = n + 1
 
-# Pengelompokan dokumen berdasarkan topik
-topik_id = {
-    "ktp": {"RTC-012", "RTC-013", "RTC-014", "RTC-015", "RTC-016", "RTC-033"},
-    "kk": {"RTC-017", "RTC-018", "RTC-031"},
-    "skck": {"RTC-025", "RTC-026", "RTC-032"},
-    "domisili": {"RTC-019", "RTC-020"},
-    "domisili_lembaga": {"RTC-011"},
-    "nonpermanen": {"RTC-021", "RTC-022"},
-    "nib": {"RTC-024"},
-    "kecamatan": {"RTC-010"},
-    "kematian": {"RTC-023"}
-}
-
-aksi_id = {
-    "hilang": {"RTC-014", "RTC-031", "RTC-033"},
-    "rusak": {"RTC-015", "RTC-018"},
-    "perubahan": {"RTC-016", "RTC-017"},
-    "perekaman": {"RTC-012", "RTC-013"},
-    "persyaratan": {"RTC-025"},
-    "prosedur": {"RTC-026", "RTC-032"}
-}
+    return posisi
 
 
-# Membersihkan dan menyamakan istilah
-def normalisasi(teks):
-    teks = str(teks).lower()
-    teks = teks.replace("kartu keluarga", "kk")
-    teks = teks.replace("kartu tanda penduduk", "ktp")
-    teks = teks.replace("ktp-el", "ktp")
-    teks = teks.replace("e-ktp", "ktp")
-    teks = teks.replace("nomor induk berusaha", "nib")
-    return teks
+class HybridRetriever:
 
+    def __init__(self):
+        referensi = pilih_referensi(baca_dataset())
 
-def tokenisasi(teks):
-    return re.findall(r"[a-z0-9]+", normalisasi(teks))
+        if not referensi:
+            raise ValueError(
+                "Tidak ada referensi pemerintah dalam dataset"
+            )
 
-
-# Mengenali topik pertanyaan
-def topik_pertanyaan(teks):
-    q = normalisasi(teks)
-
-    if re.search(r"\bskck\b", q):
-        return "skck"
-
-    if re.search(r"\bnib\b|izin berusaha|usaha rumahan", q):
-        return "nib"
-
-    if "domisili" in q and "lembaga" in q:
-        return "domisili_lembaga"
-
-    if re.search(
-        r"nonpermanen|non permanen|ngekos|kos sementara|ktp luar kota|penduduk sementara",
-        q
-    ):
-        return "nonpermanen"
-
-    if re.search(
-        r"kontrakan|rumah sewa|rumah sewaan|pindah alamat|menumpang tinggal",
-        q
-    ):
-        return "domisili"
-
-    if re.search(r"\bkk\b", q):
-        return "kk"
-
-    if re.search(r"\bktp\b|perekaman identitas", q):
-        return "ktp"
-
-    if "kematian" in q:
-        return "kematian"
-
-    if "surat keterangan" in q and "kecamatan" in q:
-        return "kecamatan"
-
-    return None
-
-
-# Mengenali jenis keperluan
-def aksi_pertanyaan(teks):
-    q = normalisasi(teks)
-
-    if re.search(r"hilang|kehilangan|tidak ketemu", q):
-        return "hilang"
-
-    if re.search(r"rusak|sobek|patah|pecah|tidak terbaca", q):
-        return "rusak"
-
-    if re.search(
-        r"ubah|perubahan|mengoreksi|koreksi|salah nama|ganti nama|perbaiki nama",
-        q
-    ):
-        return "perubahan"
-
-    if re.search(r"pertama kali|usia 17|umur 17|perekaman|rekam", q):
-        return "perekaman"
-
-    if re.search(r"syarat|persyaratan|berkas", q):
-        return "persyaratan"
-
-    if re.search(r"prosedur|cara|daftar|online", q):
-        return "prosedur"
-
-    return None
-
-
-# Pemeriksaan sebelum pencarian
-def batasan(pertanyaan):
-    q = normalisasi(pertanyaan)
-
-    if re.search(r"\b(pin|otp|password|kata sandi|kode rahasia)\b", q):
-        return "RAHASIA"
-
-    # Belum tersedia SOP lokal RT yang terverifikasi
-    if (
-        re.search(r"\b(rt|ketua rt)\b", q)
-        and re.search(r"surat|pengantar", q)
-        and not (
-            "domisili" in q
-            and "lembaga" in q
-            and "kelurahan" in q
-        )
-    ):
-        return "BELUM_ADA_SOP_RT"
-
-    if topik_pertanyaan(q) is None:
-        return "LUAR_CAKUPAN"
-
-    return None
-
-
-# Membaca metadata topik dokumen
-def topik_dokumen(item):
-    if item.get("entitas_topik"):
-        return item["entitas_topik"]
-
-    for topik, ids in topik_id.items():
-        if item["id"] in ids:
-            return topik
-
-    return None
-
-
-def aksi_dokumen(item):
-    if item.get("aksi_topik"):
-        return item["aksi_topik"]
-
-    for aksi, ids in aksi_id.items():
-        if item["id"] in ids:
-            return aksi
-
-    return None
-
-
-# Memuat dataset dan embedding
-def muat_retrieval(auto_sync=True):
-    if auto_sync:
         try:
-            from .chatbot_service import pastikan_cache_tersinkronisasi
-        except ImportError:
-            try:
-                from chatbot_service import pastikan_cache_tersinkronisasi
-            except ImportError:
-                import sys
-                sys.path.insert(0, str(Path(__file__).parent))
-                from chatbot_service import pastikan_cache_tersinkronisasi
-        pastikan_cache_tersinkronisasi()
+            ids = json.loads(
+                (CACHE / "ids.json").read_text(encoding="utf-8")
+            )
+            meta = json.loads(
+                (CACHE / "meta.json").read_text(encoding="utf-8")
+            )
+            vektor = np.load(
+                CACHE / "embeddings.npy",
+                allow_pickle=False
+            )
+            vektor_contoh = np.load(
+                CACHE / "contoh_embeddings.npy",
+                allow_pickle=False
+            )
+            contoh_indeks = json.loads(
+                (CACHE / "contoh_indeks.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+        except FileNotFoundError as galat:
+            raise ValueError(
+                "Cache embedding belum lengkap "
+                f"({galat.filename}). Jalankan embedding.py."
+            ) from galat
 
-    data = baca_dataset()
-    referensi = pilih_referensi(data)
+        kamus = {item["id"]: item for item in referensi}
 
-    embeddings = np.load(folder_cache / "embeddings.npy")
+        if (
+            len(ids) != len(set(ids))
+            or set(ids) != set(kamus)
+            or len(ids) != len(vektor)
+            or len(contoh_indeks) != len(vektor_contoh)
+        ):
+            raise ValueError(
+                "Cache tidak cocok dengan dataset. "
+                "Jalankan embedding.py lagi."
+            )
 
-    with open(folder_cache / "ids.json", "r", encoding="utf-8") as file:
-        ids = json.load(file)
+        # Isi dokumen/model berubah walau ID sama -> cache basi
+        if meta.get("hash") != hitung_hash(referensi):
+            raise ValueError(
+                "Isi dataset atau model berubah sejak embedding "
+                "dibuat. Jalankan embedding.py lagi."
+            )
 
-    data_referensi = {item["id"]: item for item in referensi}
+        self.dokumen = [kamus[i] for i in ids]
+        self.embeddings = vektor
+        self.contoh_vektor = vektor_contoh
+        self.contoh_indeks = np.array(contoh_indeks, dtype=int)
+        self.model = SentenceTransformer(MODEL)
 
-    if (
-        len(ids) != len(embeddings)
-        or len(set(ids)) != len(ids)
-        or set(ids) != set(data_referensi)
-    ):
-        raise ValueError(
-            "Dataset dan embedding tidak cocok. Jalankan embedding.py lagi."
+        # BM25 dibuat sekali dari seluruh referensi
+        korpus = []
+
+        for item in self.dokumen:
+            teks = " ".join([
+                item["judul"],
+                item["judul"],
+                item.get("kategori", ""),
+                item["konten"],
+                " ".join(item.get("kata_kunci") or []),
+                " ".join(item.get("contoh_pertanyaan") or []),
+            ])
+
+            korpus.append(tokenisasi_bm25(teks))
+
+        self.bm25 = BM25Okapi(korpus)
+
+    def cari(self, pertanyaan, top_k=3, mode="hybrid_aturan"):
+
+        if mode not in MODE:
+            raise ValueError(f"mode harus salah satu dari {MODE}")
+
+        n = len(self.dokumen)
+
+                # 1. Semantic: dokumen + contoh pertanyaan.
+        # Pertanyaan asli dan versi ternormalisasi (retak -> rusak,
+        # e-KTP -> ktp, dst.) sama-sama di-encode; skor terbaik dipakai.
+        teks_tanya = [pertanyaan]
+        normal = normalisasi(pertanyaan)
+
+        if normal != pertanyaan.lower():
+            teks_tanya.append(normal)
+
+        vektor_tanya = self.model.encode(
+            teks_tanya,
+            normalize_embeddings=True
         )
 
-    dokumen = [data_referensi[id] for id in ids]
-    model = SentenceTransformer(nama_model)
+        cosine_dokumen = (self.embeddings @ vektor_tanya.T).max(axis=1)
 
-    return model, embeddings, dokumen
+        cosine_contoh = np.zeros(n)
 
+        if len(self.contoh_vektor):
+            kemiripan = (self.contoh_vektor @ vektor_tanya.T).max(axis=1)
+            terbaik = np.full(n, -1.0)
+            np.maximum.at(
+                terbaik,
+                self.contoh_indeks,
+                kemiripan
+            )
+            cosine_contoh = np.maximum(terbaik, 0.0)
 
-# Hybrid Retrieval
+        semantik = np.maximum(cosine_dokumen, cosine_contoh)
 
-def cari_dokumen(pertanyaan, model, embeddings, dokumen, top_k=3):
-
-    if batasan(pertanyaan):
-        return []
-
-    if not dokumen:
-        return []
-
-    topik = topik_pertanyaan(pertanyaan)
-    aksi = aksi_pertanyaan(pertanyaan)
-
-    # 1. Semantic Search seluruh dokumen
-    vektor = model.encode(
-        [pertanyaan], normalize_embeddings=True
-    )[0]
-
-    skor_semantik = embeddings @ vektor
-
-    # 2. Persiapan BM25 seluruh dokumen
-    korpus = []
-
-    for item in dokumen:
-        teks = " ".join([
-            item["judul"],
-            item["judul"],
-            item.get("kategori", ""),
-            item.get("konten", ""),
-            " ".join(item.get("kata_kunci") or []),
-            " ".join(item.get("contoh_pertanyaan") or [])
-        ])
-
-        korpus.append(tokenisasi(teks))
-
-    bm25 = BM25Okapi(korpus)
-
-    # Menyamakan beberapa istilah untuk pencarian kata
-    query_bm25 = normalisasi(pertanyaan)
-
-    padanan = {
-        "patah": "rusak",
-        "pecah": "rusak",
-        "sobek": "rusak",
-        "kehilangan": "hilang",
-        "tidak ketemu": "hilang",
-        "mengubah": "perubahan",
-        "ubah": "perubahan",
-        "ngekos": "nonpermanen"
-    }
-
-    for kata, pengganti in padanan.items():
-        query_bm25 = re.sub(
-            r"\b" + re.escape(kata) + r"\b",
-            pengganti,
-            query_bm25
+        # 2. BM25
+        bm25 = np.maximum(
+            self.bm25.get_scores(tokenisasi_bm25(pertanyaan)),
+            0
         )
 
-    skor_bm25 = bm25.get_scores(tokenisasi(query_bm25))
-    skor_bm25 = np.maximum(skor_bm25, 0)
+        rank_semantik = _peringkat(semantik)
+        rank_bm25 = _peringkat(bm25, hanya_positif=True)
 
-    # 3. Ranking kedua metode
-    ranking_semantik = np.argsort(
-        -skor_semantik, kind="stable"
-    )
-
-    ranking_bm25 = np.argsort(
-        -skor_bm25, kind="stable"
-    )
-
-    # 4. Menggabungkan ranking menggunakan RRF
-    skor_rrf = np.zeros(len(dokumen))
-
-    for posisi, indeks in enumerate(
-        ranking_semantik, start=1
-    ):
-        skor_rrf[indeks] += 1 / (60 + posisi)
-
-    for posisi, indeks in enumerate(
-        ranking_bm25, start=1
-    ):
-        if skor_bm25[indeks] > 0:
-            skor_rrf[indeks] += 1 / (60 + posisi)
-
-    # 5. Penyesuaian relevansi topik dan keperluan
-    skor_akhir = skor_rrf.copy()
-
-    for i, item in enumerate(dokumen):
-
-        topik_cocok = (
-            topik is not None
-            and topik_dokumen(item) == topik
+        # 3. Reciprocal Rank Fusion
+        skor_rrf = 1 / (K_RRF + rank_semantik)
+        ada_bm25 = rank_bm25 <= n
+        skor_rrf = skor_rrf + np.where(
+            ada_bm25,
+            1 / (K_RRF + rank_bm25),
+            0.0
         )
 
-        aksi_cocok = (
-            aksi is not None
-            and aksi_dokumen(item) == aksi
-        )
+        # 4. Prioritas topik dan keperluan
+        topik = semua_topik(pertanyaan)
+        aksi = aksi_pertanyaan(pertanyaan)
 
-        if topik_cocok:
-            skor_akhir[i] += 0.010
+        bonus = np.zeros(n)
 
-        if topik_cocok and aksi_cocok:
-            skor_akhir[i] += 0.004
+        if mode == "hybrid_aturan":
+            for i, item in enumerate(self.dokumen):
+                if topik and topik_dokumen(item) in topik:
+                    bonus[i] += BONUS_TOPIK
 
-    # 6. Mengurutkan hasil akhir
-    urutan = sorted(
-        range(len(dokumen)),
-        key=lambda i: (
-            -skor_akhir[i],
-            -skor_semantik[i]
-        )
-    )[:top_k]
+                    if (
+                        aksi is not None
+                        and aksi_dokumen(item) == aksi
+                    ):
+                        bonus[i] += BONUS_AKSI
 
-    hasil = []
+        if mode == "semantic":
+            skor_akhir = semantik.copy()
+        elif mode == "bm25":
+            skor_akhir = bm25 + 1e-6 * semantik
+        else:
+            skor_akhir = skor_rrf + bonus
 
-    for i in urutan:
-        item = dokumen[i]
+        urutan = sorted(
+            range(n),
+            key=lambda i: (-skor_akhir[i], -semantik[i])
+        )[:top_k]
 
-        hasil.append({
-            "id": item["id"],
-            "judul": item["judul"],
-            "konten": item["konten"],
-            "sumber": item.get("url_sumber", ""),
-            "skor": float(skor_semantik[i]),
-            "bm25": float(skor_bm25[i]),
-            "rrf": float(skor_rrf[i]),
-            "skor_ranking": float(skor_akhir[i])
-        })
+        hasil = []
 
-    return hasil
+        for i in urutan:
+            item = self.dokumen[i]
 
+            hasil.append({
+                "id": item["id"],
+                "judul": item["judul"],
+                "konten": item["konten"],
+                "sumber": item.get("url_sumber", ""),
+                "wilayah": item.get("wilayah", ""),
+                "topik": topik_dokumen(item),
+                "aksi": aksi_dokumen(item),
+                "skor": float(cosine_dokumen[i]),
+                "skor_contoh": float(cosine_contoh[i]),
+                "skor_semantik": float(semantik[i]),
+                "bm25": float(bm25[i]),
+                "rrf": float(skor_rrf[i]),
+                "skor_ranking": float(skor_akhir[i]),
+                "rank_semantik": int(rank_semantik[i]),
+                "rank_bm25": int(rank_bm25[i]),
+            })
 
-# Menentukan status pencarian
-def status_pencarian(pertanyaan, hasil):
-    blok = batasan(pertanyaan)
-
-    if blok:
-        return blok
-
-    if not hasil:
-        return "FALLBACK"
-
-    if hasil[0]["skor"] >= ambang:
-        return "SUMBER_DITEMUKAN"
-
-    return "PERLU_VERIFIKASI"
+        return hasil
 
 
 if __name__ == "__main__":
-    model, embeddings, dokumen = muat_retrieval()
+
+    mesin = HybridRetriever()
 
     pertanyaan = input("Pertanyaan: ").strip()
 
     if pertanyaan:
-        hasil = cari_dokumen(
-            pertanyaan, model, embeddings, dokumen
-        )
-
-        for item in hasil:
-            print(f"\n{item['judul']}")
-            print(f"Cosine: {item['skor']:.4f}")
-            print(f"BM25: {item['bm25']:.4f}")
-            print(f"RRF: {item['rrf']:.4f}")
-            print(f"Sumber: {item['sumber']}")
-
-        print("\nStatus:", status_pencarian(pertanyaan, hasil))
-
-    else:
-        print("Pertanyaan tidak boleh kosong")
+        for item in mesin.cari(pertanyaan):
+            print(
+                f"{item['id']} | {item['judul']} | "
+                f"Semantik {item['skor_semantik']:.4f} "
+                f"(dok {item['skor']:.4f}, "
+                f"contoh {item['skor_contoh']:.4f}) | "
+                f"BM25 {item['bm25']:.4f} | "
+                f"RRF {item['rrf']:.4f}"
+            )

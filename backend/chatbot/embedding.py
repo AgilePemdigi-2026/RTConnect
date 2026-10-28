@@ -2,78 +2,127 @@ import hashlib
 import json
 from pathlib import Path
 
-def generate_embeddings(folder_output=None):
-    """
-    Menghasilkan vektor embedding untuk dokumen referensi knowledge base
-    dan menyimpannya ke folder cache beserta metadata hash.
-    """
-    try:
-        import numpy as np
-        from sentence_transformers import SentenceTransformer
-    except ImportError as e:
-        raise RuntimeError(
-            "Dependensi sentence-transformers atau numpy belum terpasang. "
-            "Jalankan: pip install sentence-transformers numpy"
-        ) from e
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
-    try:
-        from .preprocessing import baca_dataset, pilih_referensi
-    except ImportError:
-        try:
-            from preprocessing import baca_dataset, pilih_referensi
-        except ImportError:
-            import sys
-            sys.path.insert(0, str(Path(__file__).parent))
-            from preprocessing import baca_dataset, pilih_referensi
+try:
+    from .preprocessing import baca_dataset, pilih_referensi
+except ImportError:
+    from preprocessing import baca_dataset, pilih_referensi
 
-    data = baca_dataset()
-    referensi = pilih_referensi(data)
-    teks = [
-        f"{item['judul']}. {item['konten']}"
+
+MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+CACHE = Path(__file__).parent / "cache"
+
+
+def teks_dokumen(item):
+    return f"{item['judul']}. {item['konten']}"
+
+
+def contoh_dokumen(item):
+    return [
+        str(c).strip()
+        for c in (item.get("contoh_pertanyaan") or [])
+        if str(c).strip()
+    ]
+
+
+def hitung_hash(referensi):
+    """Sidik jari isi dataset + model. Berubah jika teks diedit."""
+    bahan = [MODEL] + [
+        [
+            item["id"],
+            item["judul"],
+            item["konten"],
+            contoh_dokumen(item),
+        ]
         for item in referensi
     ]
 
-    # Model embedding
-    model = SentenceTransformer(
-        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    )
+    return hashlib.sha256(
+        json.dumps(
+            bahan,
+            ensure_ascii=False,
+            sort_keys=True
+        ).encode("utf-8")
+    ).hexdigest()
 
-    embeddings = model.encode(
-        teks,
+
+def bangun_embedding():
+    referensi = pilih_referensi(baca_dataset())
+
+    if not referensi:
+        raise ValueError(
+            "Tidak ada referensi pemerintah yang layak dipakai"
+        )
+
+    model = SentenceTransformer(MODEL)
+
+    # 1. Embedding dokumen (judul + konten)
+    vektor_dokumen = model.encode(
+        [teks_dokumen(item) for item in referensi],
         normalize_embeddings=True,
         show_progress_bar=True
     )
 
-    if folder_output is None:
-        folder_output = Path(__file__).parent / "cache"
-    folder_output = Path(folder_output)
-    folder_output.mkdir(exist_ok=True)
+    # 2. Embedding contoh pertanyaan (pertanyaan vs pertanyaan)
+    contoh_teks = []
+    contoh_indeks = []
 
-    # Simpan hasil embedding
-    np.save(folder_output / "embeddings.npy", embeddings)
+    for i, item in enumerate(referensi):
+        for contoh in contoh_dokumen(item):
+            contoh_teks.append(contoh)
+            contoh_indeks.append(i)
 
-    # Simpan ID dokumen
-    ids = [item["id"] for item in referensi]
-    with open(folder_output / "ids.json", "w", encoding="utf-8") as file:
-        json.dump(ids, file, indent=2)
+    if contoh_teks:
+        vektor_contoh = model.encode(
+            contoh_teks,
+            normalize_embeddings=True,
+            show_progress_bar=False
+        )
+    else:
+        vektor_contoh = np.zeros(
+            (0, vektor_dokumen.shape[1]),
+            dtype=vektor_dokumen.dtype
+        )
 
-    # Simpan metadata SHA-256 dataset untuk validasi otomatis
-    dataset_file = Path(__file__).parent / "dataset" / "knowledgebase.jsonl"
-    if dataset_file.exists():
-        with open(dataset_file, "rb") as df:
-            dataset_hash = hashlib.sha256(df.read()).hexdigest()
-        metadata = {
-            "dataset_sha256": dataset_hash,
-            "total_documents": len(teks),
-            "ids": ids
-        }
-        with open(folder_output / "cache_metadata.json", "w", encoding="utf-8") as mf:
-            json.dump(metadata, mf, indent=2)
+    CACHE.mkdir(exist_ok=True)
 
-    print("Jumlah dokumen:", len(teks))
-    print("Ukuran embedding:", embeddings.shape)
-    print("Embedding berhasil disimpan")
-    return embeddings, ids
+    np.save(CACHE / "embeddings.npy", vektor_dokumen)
+    np.save(CACHE / "contoh_embeddings.npy", vektor_contoh)
+
+    (CACHE / "ids.json").write_text(
+        json.dumps(
+            [item["id"] for item in referensi],
+            indent=2
+        ),
+        encoding="utf-8"
+    )
+
+    (CACHE / "contoh_indeks.json").write_text(
+        json.dumps(contoh_indeks),
+        encoding="utf-8"
+    )
+
+    (CACHE / "meta.json").write_text(
+        json.dumps(
+            {
+                "model": MODEL,
+                "hash": hitung_hash(referensi),
+                "jumlah_dokumen": len(referensi),
+                "jumlah_contoh": len(contoh_teks),
+            },
+            indent=2
+        ),
+        encoding="utf-8"
+    )
+
+    print(
+        f"Embedding tersimpan: {len(referensi)} dokumen, "
+        f"{len(contoh_teks)} contoh pertanyaan, "
+        f"dimensi {vektor_dokumen.shape[1]}"
+    )
+
 
 if __name__ == "__main__":
-    generate_embeddings()
+    bangun_embedding()

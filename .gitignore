@@ -40,6 +40,12 @@ backend/uploads/signatures/*
 !backend/uploads/signatures/.gitkeep
 
 # ==========================================
+# Chatbot Cache & Evaluation Data
+# ==========================================
+backend/chatbot/cache/
+backend/chatbot/hasil_uji*.csv
+
+# ==========================================
 # Academic Documents, SRS, & UTS (Non-Runtime)
 # ==========================================
 UTS/
@@ -47,7 +53,9 @@ monitoring/
 diagrams/
 uml/
 scripts/
-assets/
+/assets/
+!frontend/assets/
+!frontend/assets/**
 *.zip
 *.docx
 

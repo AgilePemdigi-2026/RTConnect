@@ -5,55 +5,15 @@ import datetime
 from io import BytesIO
 from pathlib import PurePosixPath
 from flask import Blueprint, request, jsonify, send_file
-import bcrypt
-import threading
-import time
-
-MAX_PIN_ATTEMPTS = 5
-PIN_LOCKOUT_SECONDS = 15 * 60  # 15 menit
-
-_pin_lock = threading.Lock()
-_pin_attempt_tracker = {}
-
-def get_pin_lockout_status(user_id: int):
-    with _pin_lock:
-        state = _pin_attempt_tracker.get(user_id)
-        if not state:
-            return False, 0, 0, 0
-        locked_until = state.get('locked_until')
-        now = time.time()
-        if locked_until:
-            if now < locked_until:
-                remaining_seconds = int(locked_until - now)
-                remaining_minutes = max(1, (remaining_seconds + 59) // 60)
-                return True, remaining_seconds, remaining_minutes, state.get('failed_attempts', 0)
-            else:
-                del _pin_attempt_tracker[user_id]
-                return False, 0, 0, 0
-        return False, 0, 0, state.get('failed_attempts', 0)
-
-def record_pin_failure(user_id: int):
-    with _pin_lock:
-        state = _pin_attempt_tracker.setdefault(user_id, {'failed_attempts': 0, 'locked_until': None})
-        state['failed_attempts'] += 1
-        if state['failed_attempts'] >= MAX_PIN_ATTEMPTS:
-            state['locked_until'] = time.time() + PIN_LOCKOUT_SECONDS
-            lockout_minutes = (PIN_LOCKOUT_SECONDS + 59) // 60
-            return True, 0, lockout_minutes, PIN_LOCKOUT_SECONDS
-        else:
-            remaining_attempts = MAX_PIN_ATTEMPTS - state['failed_attempts']
-            return False, remaining_attempts, 0, 0
-
-def reset_pin_attempts(user_id: int):
-    with _pin_lock:
-        _pin_attempt_tracker.pop(user_id, None)
 
 from config import Config
 from database.db import query_all, query_one, execute
 from middleware.auth_middleware import jwt_required, roles_accepted
 from services.ai_draft_service import generate_letter_draft
 from services.file_storage import read_bytes, store_bytes, store_upload
+from services.letter_number_service import generate_unique_letter_number
 from services.pdf_service import generate_official_letter_pdf, generate_official_letter_pdf_bytes
+from services.pin_guard_service import verify_signing_pin, reset_pin_attempts, MAX_ATTEMPTS as MAX_PIN_ATTEMPTS
 
 letter_bp = Blueprint('letters', __name__, url_prefix='/api/v1/letters')
 
@@ -63,11 +23,8 @@ def generate_nomor_pengajuan() -> str:
     return f"SRT-{year}-{rand_id}"
 
 def generate_nomor_surat_resmi(jenis_kode: str) -> str:
-    now = datetime.datetime.now()
-    roman_months = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII']
-    month_roman = roman_months[now.month - 1]
-    rand_seq = random.randint(100, 999)
-    return f"{Config.RT_NUMBER}/{Config.RW_NUMBER}/{Config.RT_LETTER_CODE}/{jenis_kode}/{rand_seq}/{month_roman}/{now.year}"
+    # Nomor urut berurutan per tahun (bukan acak) agar selalu unik.
+    return generate_unique_letter_number(jenis_kode)
 
 @letter_bp.route('/types', methods=['GET'])
 @jwt_required
@@ -341,7 +298,9 @@ def submit_decision(id: int):
 
     if action == 'approve':
         status = 'disetujui'
-        nomor_resmi = generate_nomor_surat_resmi(app_data['kode_surat'])
+        # Nomor surat resmi diterbitkan saat pengesahan (sign-digital) agar
+        # nomor urut tidak terpakai oleh surat yang belum disahkan.
+        nomor_resmi = None
         execute(
             "UPDATE pengajuan_surat SET status = %s, rt_id = %s, tanggal_diverifikasi = %s WHERE pengajuan_id = %s",
             (status, rt_user['user_id'], now, id)
@@ -409,24 +368,6 @@ def sign_digital(id: int):
     API-011: Otorisasi digital PIN Ketua RT & pembuatan dokumen PDF resmi 
     dengan tempelan gambar tanda tangan digital (UC-09).
     """
-    rt_user = request.current_user
-    rt_user_id = rt_user.get('user_id') if isinstance(rt_user, dict) else None
-
-    # Proteksi brute-force: cek status lockout sebelum verifikasi PIN
-    if rt_user_id:
-        is_locked, remaining_seconds, remaining_minutes, _ = get_pin_lockout_status(rt_user_id)
-        if is_locked:
-            return jsonify({
-                'success': False,
-                'message': f'Akun terkunci sementara karena {MAX_PIN_ATTEMPTS} kali salah memasukkan PIN. Silakan coba lagi dalam {remaining_minutes} menit.',
-                'data': {
-                    'sisa_percobaan': 0,
-                    'sisa_menit': remaining_minutes,
-                    'sisa_detik': remaining_seconds
-                },
-                'error': 'PIN_LOCKED'
-            }), 429
-
     parsed_data = request.get_json(silent=True)
     data = parsed_data if isinstance(parsed_data, dict) else {}
     pin_value = data.get('pin', '')
@@ -440,41 +381,27 @@ def sign_digital(id: int):
             'error': 'SIGNING_NOT_CONFIGURED'
         }), 503
 
-    try:
-        pin_is_valid = bcrypt.checkpw(pin.encode('utf-8'), Config.RT_SIGNING_PIN_HASH.encode('utf-8'))
-    except ValueError:
-        pin_is_valid = False
-
-    if not pin_is_valid:
-        if rt_user_id:
-            is_now_locked, remaining_attempts, lockout_minutes, lockout_seconds = record_pin_failure(rt_user_id)
-            if is_now_locked:
-                return jsonify({
-                    'success': False,
-                    'message': f'PIN salah {MAX_PIN_ATTEMPTS} kali berturut-turut. Akses otorisasi dikunci selama {lockout_minutes} menit.',
-                    'data': {
-                        'sisa_percobaan': 0,
-                        'sisa_menit': lockout_minutes,
-                        'sisa_detik': lockout_seconds
-                    },
-                    'error': 'PIN_LOCKED'
-                }), 429
-            else:
-                return jsonify({
-                    'success': False,
-                    'message': f'PIN Otorisasi Ketua RT salah. Sisa percobaan: {remaining_attempts}',
-                    'data': {
-                        'sisa_percobaan': remaining_attempts
-                    },
-                    'error': 'INVALID_PIN'
-                }), 401
+    if not pin.isdigit() or len(pin) != 6:
         return jsonify({
             'success': False,
-            'message': 'PIN Otorisasi Ketua RT salah',
+            'message': 'PIN harus 6 digit angka',
             'data': None,
-            'error': 'INVALID_PIN'
-        }), 401
+            'error': 'VALIDATION_ERROR'
+        }), 400
 
+    # Verifikasi PIN + kunci 15 menit setelah 5 kali salah. Status 403/423
+    # (bukan 401) agar sesi login Ketua RT tidak ikut dihapus aplikasi.
+    pin_check = verify_signing_pin(request.current_user['user_id'], pin)
+    if not pin_check.ok:
+        return jsonify({
+            'success': False,
+            'message': pin_check.message,
+            'data': pin_check.data(),
+            'error': pin_check.error
+        }), pin_check.http_status
+
+    rt_user = request.current_user
+    rt_user_id = rt_user.get('user_id') if isinstance(rt_user, dict) else None
     if rt_user_id:
         reset_pin_attempts(rt_user_id)
 
@@ -493,7 +420,6 @@ def sign_digital(id: int):
     if app_data['status'] != 'disetujui':
         return jsonify({'success': False, 'message': 'Pengajuan harus disetujui sebelum ditandatangani', 'data': None, 'error': 'INVALID_STATUS'}), 409
 
-    rt_user = request.current_user
     if Config.IS_PRODUCTION and not rt_user.get('tanda_tangan_url'):
         return jsonify({
             'success': False,
@@ -501,7 +427,13 @@ def sign_digital(id: int):
             'data': None,
             'error': 'SIGNATURE_NOT_CONFIGURED'
         }), 409
-    nomor_resmi = generate_nomor_surat_resmi(app_data['kode_surat'])
+
+    # Pakai ulang nomor yang sudah pernah terbit untuk pengajuan ini (jika ada)
+    existing_number = query_one("SELECT nomor_surat_resmi FROM surat_final WHERE pengajuan_id = %s", (id,))
+    nomor_resmi = (
+        existing_number['nomor_surat_resmi']
+        if existing_number else generate_nomor_surat_resmi(app_data['kode_surat'])
+    )
 
     # Buat PDF resmi dengan tempelan gambar tanda tangan digital langsung di memori (S3/stateless ready)
     pdf_filename = f"Surat_{app_data['nomor_pengajuan']}_{id}.pdf"

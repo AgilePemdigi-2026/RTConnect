@@ -501,9 +501,9 @@ class _DetailPengajuanPageState extends State<DetailPengajuanPage> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: warna.withOpacity(0.08),
+          color: warna.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: warna.withOpacity(0.3)),
+          border: Border.all(color: warna.withValues(alpha: 0.3)),
         ),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Icon(icon, color: warna, size: 20),
