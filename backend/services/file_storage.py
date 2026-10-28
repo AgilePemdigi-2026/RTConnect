@@ -56,10 +56,26 @@ def _write_local(key, data):
     try:
         with open(temporary_path, 'wb') as output:
             output.write(data)
-        os.replace(temporary_path, path)
+        try:
+            os.replace(temporary_path, path)
+        except OSError:
+            import time
+            for _ in range(5):
+                time.sleep(0.05)
+                try:
+                    os.replace(temporary_path, path)
+                    break
+                except OSError:
+                    pass
+            else:
+                with open(path, 'wb') as output:
+                    output.write(data)
     finally:
         if os.path.exists(temporary_path):
-            os.remove(temporary_path)
+            try:
+                os.remove(temporary_path)
+            except OSError:
+                pass
 
 
 def store_bytes(key, data, content_type):

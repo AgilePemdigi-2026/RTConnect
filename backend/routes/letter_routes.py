@@ -5,14 +5,15 @@ import datetime
 from io import BytesIO
 from pathlib import PurePosixPath
 from flask import Blueprint, request, jsonify, send_file
+
 from config import Config
 from database.db import query_all, query_one, execute
 from middleware.auth_middleware import jwt_required, roles_accepted
 from services.ai_draft_service import generate_letter_draft
 from services.file_storage import read_bytes, store_bytes, store_upload
 from services.letter_number_service import generate_unique_letter_number
-from services.pdf_service import generate_official_letter_pdf
-from services.pin_guard_service import verify_signing_pin
+from services.pdf_service import generate_official_letter_pdf, generate_official_letter_pdf_bytes
+from services.pin_guard_service import verify_signing_pin, reset_pin_attempts, MAX_ATTEMPTS as MAX_PIN_ATTEMPTS
 
 letter_bp = Blueprint('letters', __name__, url_prefix='/api/v1/letters')
 
@@ -399,6 +400,11 @@ def sign_digital(id: int):
             'error': pin_check.error
         }), pin_check.http_status
 
+    rt_user = request.current_user
+    rt_user_id = rt_user.get('user_id') if isinstance(rt_user, dict) else None
+    if rt_user_id:
+        reset_pin_attempts(rt_user_id)
+
     app_data = query_one(
         """SELECT p.*, j.kode_surat, j.nama_surat,
                   u.nama_lengkap, u.nik, u.nomor_telepon, u.alamat, u.nomor_rt, u.nomor_rw
@@ -411,10 +417,14 @@ def sign_digital(id: int):
 
     if not app_data:
         return jsonify({'success': False, 'message': 'Pengajuan surat tidak ditemukan', 'data': None, 'error': 'NOT_FOUND'}), 404
-    if app_data['status'] != 'disetujui':
-        return jsonify({'success': False, 'message': 'Pengajuan harus disetujui sebelum ditandatangani', 'data': None, 'error': 'INVALID_STATUS'}), 409
+    if app_data['status'] not in ['diajukan', 'disetujui']:
+        return jsonify({
+            'success': False,
+            'message': 'Pengajuan surat tidak dalam status yang dapat disahkan',
+            'data': None,
+            'error': 'INVALID_STATUS'
+        }), 409
 
-    rt_user = request.current_user
     if Config.IS_PRODUCTION and not rt_user.get('tanda_tangan_url'):
         return jsonify({
             'success': False,
@@ -422,6 +432,7 @@ def sign_digital(id: int):
             'data': None,
             'error': 'SIGNATURE_NOT_CONFIGURED'
         }), 409
+
     # Pakai ulang nomor yang sudah pernah terbit untuk pengajuan ini (jika ada)
     existing_number = query_one("SELECT nomor_surat_resmi FROM surat_final WHERE pengajuan_id = %s", (id,))
     nomor_resmi = (
@@ -429,24 +440,17 @@ def sign_digital(id: int):
         if existing_number else generate_nomor_surat_resmi(app_data['kode_surat'])
     )
 
-    # Buat PDF resmi dengan tempelan gambar tanda tangan digital
+    # Buat PDF resmi dengan tempelan gambar tanda tangan digital langsung di memori (S3/stateless ready)
     pdf_filename = f"Surat_{app_data['nomor_pengajuan']}_{id}.pdf"
-    pdf_path = generate_official_letter_pdf(
+    rel_pdf_path = f"generated_letters/{pdf_filename}"
+    pdf_bytes = generate_official_letter_pdf_bytes(
         application=app_data,
         resident=app_data,
         letter_type={'nama_surat': app_data['nama_surat'], 'kode_surat': app_data['kode_surat']},
         official_letter_number=nomor_resmi,
         rt_user=rt_user,
-        output_filename=pdf_filename
     )
-
-    rel_pdf_path = f"generated_letters/{pdf_filename}"
-    try:
-        with open(pdf_path, 'rb') as generated_pdf:
-            store_bytes(rel_pdf_path, generated_pdf.read(), 'application/pdf')
-    finally:
-        if Config.STORAGE_BACKEND == 's3' and os.path.exists(pdf_path):
-            os.remove(pdf_path)
+    store_bytes(rel_pdf_path, pdf_bytes, 'application/pdf')
     token_verif = secrets.token_urlsafe(32)
 
     # Simpan atau update ke tabel surat_final
@@ -468,15 +472,20 @@ def sign_digital(id: int):
     # Perbarui status pengajuan menjadi selesai
     now = datetime.datetime.now()
     execute(
-        "UPDATE pengajuan_surat SET status = 'selesai', tanggal_selesai = %s, rt_id = %s WHERE pengajuan_id = %s",
-        (now, rt_user['user_id'], id)
+        """UPDATE pengajuan_surat 
+           SET status = 'selesai', 
+               tanggal_selesai = %s, 
+               tanggal_diverifikasi = COALESCE(tanggal_diverifikasi, %s),
+               rt_id = %s 
+           WHERE pengajuan_id = %s""",
+        (now, now, rt_user['user_id'], id)
     )
 
     # Kirim notifikasi warga
     execute(
         """INSERT INTO notifikasi (penerima_id, tipe_notifikasi, judul, pesan_notifikasi, tautan_tujuan)
            VALUES (%s, 'surat_disetujui', 'Surat Selesai Ditandatangani', %s, %s)""",
-        (app_data['warga_id'], f"Surat {app_data['nama_surat']} Anda telah selesai dan siap diunduh.", f"/letters/{id}/download")
+        (app_data['warga_id'], f"Surat {app_data['nama_surat']} Anda telah selesai dan siap diunduh.", f"/letters/{id}")
     )
 
     return jsonify({
@@ -541,4 +550,5 @@ def download_letter_pdf(id: int):
         return jsonify({'success': False, 'message': 'File fisik PDF tidak ditemukan di server', 'data': None, 'error': 'FILE_NOT_FOUND'}), 404
 
     filename = PurePosixPath(storage_key).name
-    return send_file(BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True, download_name=filename)
+    as_attachment = request.args.get('download', '0') == '1' and request.args.get('preview', '0') != '1'
+    return send_file(BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=as_attachment, download_name=filename)

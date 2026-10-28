@@ -4,23 +4,27 @@ from datetime import date
 from functools import lru_cache
 
 try:
-    from .retrieval import HybridRetriever
-    from .rules import (
-        jenis_pertanyaan,
-        semua_topik,
-        aksi_pertanyaan,
-        coverage,
-        penentu_hilang,
-    )
-except ImportError:
-    from retrieval import HybridRetriever
-    from rules import (
-        jenis_pertanyaan,
-        semua_topik,
-        aksi_pertanyaan,
-        coverage,
-        penentu_hilang,
-    )
+    try:
+        from .retrieval import HybridRetriever
+        from .rules import (
+            jenis_pertanyaan,
+            semua_topik,
+            aksi_pertanyaan,
+            coverage,
+            penentu_hilang,
+        )
+    except (ImportError, ModuleNotFoundError):
+        from retrieval import HybridRetriever
+        from rules import (
+            jenis_pertanyaan,
+            semua_topik,
+            aksi_pertanyaan,
+            coverage,
+            penentu_hilang,
+        )
+except Exception:
+    HybridRetriever = None
+    jenis_pertanyaan = semua_topik = aksi_pertanyaan = coverage = penentu_hilang = None
 
 
 PESAN = {
@@ -137,7 +141,8 @@ def _id_unik(item):
 class TanyaRTService:
 
     def __init__(self):
-
+        if HybridRetriever is None:
+            raise RuntimeError("Pustaka retrieval (numpy/sentence-transformers) belum terpasang.")
         self.retriever = HybridRetriever()
 
         self.min_skor = _env_float(
@@ -410,3 +415,71 @@ class TanyaRTService:
 @lru_cache(maxsize=1)
 def get_service():
     return TanyaRTService()
+
+
+# ==========================================
+# Cache Integrity & Synchronization Helpers
+# ==========================================
+from pathlib import Path
+import json
+import logging
+
+_logger = logging.getLogger(__name__)
+
+CHATBOT_DIR = Path(__file__).parent
+DATASET_PATH = CHATBOT_DIR / "dataset" / "knowledgebase.jsonl"
+CACHE_DIR = CHATBOT_DIR / "cache"
+CACHE_EMBEDDINGS_PATH = CACHE_DIR / "embeddings.npy"
+CACHE_IDS_PATH = CACHE_DIR / "ids.json"
+
+
+def hitung_hash_file(filepath: Path):
+    """Menghitung SHA-256 hexdigest dari file target."""
+    if not filepath.exists():
+        return None
+    hasher = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(65536):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def validasi_integritas_cache():
+    """
+    Memvalidasi apakah cache embeddings.npy dan ids.json selaras
+    dengan isi dokumen referensi di dataset knowledgebase.jsonl.
+    """
+    if not DATASET_PATH.exists():
+        return False, f"File dataset tidak ditemukan: {DATASET_PATH}"
+    if not CACHE_EMBEDDINGS_PATH.exists():
+        return False, f"File cache embedding tidak ditemukan: {CACHE_EMBEDDINGS_PATH}"
+    if not CACHE_IDS_PATH.exists():
+        return False, f"File cache ID tidak ditemukan: {CACHE_IDS_PATH}"
+
+    try:
+        from .preprocessing import baca_dataset, pilih_referensi
+    except ImportError:
+        try:
+            from preprocessing import baca_dataset, pilih_referensi
+        except ImportError:
+            import sys
+            sys.path.insert(0, str(CHATBOT_DIR))
+            from preprocessing import baca_dataset, pilih_referensi
+
+    try:
+        data = baca_dataset()
+        referensi = pilih_referensi(data)
+        dataset_ids = [item["id"] for item in referensi]
+    except Exception as e:
+        return False, f"Gagal membaca dataset knowledgebase: {e}"
+
+    try:
+        with open(CACHE_IDS_PATH, "r", encoding="utf-8") as f:
+            cached_ids = json.load(f)
+    except Exception as e:
+        return False, f"Gagal membaca cache ids.json: {e}"
+
+    if cached_ids != dataset_ids:
+        return False, f"Cache ID ({len(cached_ids)}) tidak cocok dengan ID referensi dataset ({len(dataset_ids)})."
+
+    return True, "Cache embedding dan dataset referensi tersinkronisasi sempurna."
