@@ -4,23 +4,27 @@ from datetime import date
 from functools import lru_cache
 
 try:
-    from .retrieval import HybridRetriever
-    from .rules import (
-        jenis_pertanyaan,
-        semua_topik,
-        aksi_pertanyaan,
-        coverage,
-        penentu_hilang,
-    )
-except ImportError:
-    from retrieval import HybridRetriever
-    from rules import (
-        jenis_pertanyaan,
-        semua_topik,
-        aksi_pertanyaan,
-        coverage,
-        penentu_hilang,
-    )
+    try:
+        from .retrieval import HybridRetriever
+        from .rules import (
+            jenis_pertanyaan,
+            semua_topik,
+            aksi_pertanyaan,
+            coverage,
+            penentu_hilang,
+        )
+    except (ImportError, ModuleNotFoundError):
+        from retrieval import HybridRetriever
+        from rules import (
+            jenis_pertanyaan,
+            semua_topik,
+            aksi_pertanyaan,
+            coverage,
+            penentu_hilang,
+        )
+except Exception:
+    HybridRetriever = None
+    jenis_pertanyaan = semua_topik = aksi_pertanyaan = coverage = penentu_hilang = None
 
 
 PESAN = {
@@ -137,7 +141,8 @@ def _id_unik(item):
 class TanyaRTService:
 
     def __init__(self):
-
+        if HybridRetriever is None:
+            raise RuntimeError("Pustaka retrieval (numpy/sentence-transformers) belum terpasang.")
         self.retriever = HybridRetriever()
 
         self.min_skor = _env_float(

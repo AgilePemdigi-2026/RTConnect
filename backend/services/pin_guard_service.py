@@ -29,6 +29,7 @@ class PinCheckResult:
             payload['sisa_percobaan'] = self.remaining_attempts
         if self.locked_minutes is not None:
             payload['sisa_menit'] = self.locked_minutes
+            payload['sisa_percobaan'] = 0
         return payload or None
 
 
@@ -61,7 +62,7 @@ def verify_signing_pin(rt_id: int, pin: str) -> PinCheckResult:
                 conn.commit()
                 minutes = max(int(row['sisa_menit'] or 1), 1)
                 return PinCheckResult(
-                    False, 423, 'PIN_LOCKED',
+                    False, 429, 'PIN_LOCKED',
                     f'PIN terkunci karena salah {MAX_ATTEMPTS} kali. Coba lagi dalam {minutes} menit.',
                     locked_minutes=minutes,
                 )
@@ -84,7 +85,7 @@ def verify_signing_pin(rt_id: int, pin: str) -> PinCheckResult:
                 )
                 conn.commit()
                 return PinCheckResult(
-                    False, 423, 'PIN_LOCKED',
+                    False, 429, 'PIN_LOCKED',
                     f'PIN salah {MAX_ATTEMPTS} kali. PIN dikunci selama {LOCK_MINUTES} menit.',
                     locked_minutes=LOCK_MINUTES,
                 )
@@ -96,7 +97,7 @@ def verify_signing_pin(rt_id: int, pin: str) -> PinCheckResult:
             conn.commit()
             remaining = MAX_ATTEMPTS - failed
             return PinCheckResult(
-                False, 403, 'INVALID_PIN',
+                False, 401, 'INVALID_PIN',
                 f'PIN Otorisasi Ketua RT salah. Sisa percobaan: {remaining}',
                 remaining_attempts=remaining,
             )
