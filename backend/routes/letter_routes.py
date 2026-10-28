@@ -417,8 +417,13 @@ def sign_digital(id: int):
 
     if not app_data:
         return jsonify({'success': False, 'message': 'Pengajuan surat tidak ditemukan', 'data': None, 'error': 'NOT_FOUND'}), 404
-    if app_data['status'] != 'disetujui':
-        return jsonify({'success': False, 'message': 'Pengajuan harus disetujui sebelum ditandatangani', 'data': None, 'error': 'INVALID_STATUS'}), 409
+    if app_data['status'] not in ['diajukan', 'disetujui']:
+        return jsonify({
+            'success': False,
+            'message': 'Pengajuan surat tidak dalam status yang dapat disahkan',
+            'data': None,
+            'error': 'INVALID_STATUS'
+        }), 409
 
     if Config.IS_PRODUCTION and not rt_user.get('tanda_tangan_url'):
         return jsonify({
@@ -467,15 +472,20 @@ def sign_digital(id: int):
     # Perbarui status pengajuan menjadi selesai
     now = datetime.datetime.now()
     execute(
-        "UPDATE pengajuan_surat SET status = 'selesai', tanggal_selesai = %s, rt_id = %s WHERE pengajuan_id = %s",
-        (now, rt_user['user_id'], id)
+        """UPDATE pengajuan_surat 
+           SET status = 'selesai', 
+               tanggal_selesai = %s, 
+               tanggal_diverifikasi = COALESCE(tanggal_diverifikasi, %s),
+               rt_id = %s 
+           WHERE pengajuan_id = %s""",
+        (now, now, rt_user['user_id'], id)
     )
 
     # Kirim notifikasi warga
     execute(
         """INSERT INTO notifikasi (penerima_id, tipe_notifikasi, judul, pesan_notifikasi, tautan_tujuan)
            VALUES (%s, 'surat_disetujui', 'Surat Selesai Ditandatangani', %s, %s)""",
-        (app_data['warga_id'], f"Surat {app_data['nama_surat']} Anda telah selesai dan siap diunduh.", f"/letters/{id}/download")
+        (app_data['warga_id'], f"Surat {app_data['nama_surat']} Anda telah selesai dan siap diunduh.", f"/letters/{id}")
     )
 
     return jsonify({
@@ -540,4 +550,5 @@ def download_letter_pdf(id: int):
         return jsonify({'success': False, 'message': 'File fisik PDF tidak ditemukan di server', 'data': None, 'error': 'FILE_NOT_FOUND'}), 404
 
     filename = PurePosixPath(storage_key).name
-    return send_file(BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True, download_name=filename)
+    as_attachment = request.args.get('download', '0') == '1' and request.args.get('preview', '0') != '1'
+    return send_file(BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=as_attachment, download_name=filename)

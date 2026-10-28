@@ -164,6 +164,23 @@ def run_api_tests():
     assert sign_data['status'] == 'selesai'
     print(f"[PASS] 12b. Pengesahan TTD Digital (API-011 / UC-09): OK -> Nomor: {sign_data['nomor_surat_resmi']}, Dokumen PDF terbit")
 
+    # Skenario E: Pengesahan digital langsung dari status 'diajukan' (alur satu klik aplikasi Flutter)
+    res_direct_apply = client.post('/api/v1/letters/apply', headers=warga_headers, json={
+        'jenis_surat_id': dom_type['jenis_surat_id'],
+        'keperluan': 'Keperluan mendesak tanda tangan digital langsung',
+        'metode_tanda_tangan': 'digital'
+    })
+    assert res_direct_apply.status_code == 201
+    direct_id = res_direct_apply.get_json()['data']['pengajuan_id']
+
+    res_direct_sign = client.post(f'/api/v1/letters/{direct_id}/sign-digital', headers=rt_headers, json={
+        'pin': '123456'
+    })
+    assert res_direct_sign.status_code == 200, f"Sign digital langsung dari diajukan gagal: {res_direct_sign.data}"
+    direct_data = res_direct_sign.get_json()['data']
+    assert direct_data['status'] == 'selesai'
+    print(f"[PASS] 12c. Pengesahan TTD Digital Langsung dari 'diajukan' (Alur Mobile Flutter): OK -> ID #{direct_id} sukses disahkan")
+
     # 13. Unduh File PDF Resmi (API-013)
     res_dl = client.get(f'/api/v1/letters/{pengajuan_id}/download', headers=warga_headers)
     assert res_dl.status_code == 200
