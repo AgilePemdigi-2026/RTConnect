@@ -21,8 +21,8 @@ from config import Config  # noqa: E402
 from services.rag_service import search_chunks  # noqa: E402
 
 
-DATASET_PATH = Path(__file__).parent / "dataset" / "knowledgebase.jsonl"
-OUTPUT_PATH = Path(__file__).parent / "hasil_uji_runtime.csv"
+DATASET_PATH = Path(__file__).parent / "chatbot" / "dataset" / "knowledgebase.jsonl"
+OUTPUT_PATH = Path(__file__).parent / "chatbot" / "hasil_uji_runtime.csv"
 
 
 CASES = [
