@@ -5,9 +5,11 @@ from dotenv import load_dotenv
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Muat variabel environment dari .env di backend maupun root folder
+# Muat variabel environment dari .env di backend, root folder, lalu supabase_connect.
+# (Urutan sama dengan database/db.py; nilai yang dimuat lebih dulu yang dipakai.)
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 load_dotenv(os.path.join(os.path.dirname(BASE_DIR), '.env'))
+load_dotenv(os.path.join(BASE_DIR, 'supabase_connect', '.env'))
 load_dotenv()
 
 class Config:
@@ -15,7 +17,7 @@ class Config:
     APP_ENV = os.getenv('APP_ENV', 'development').lower()
     IS_PRODUCTION = APP_ENV in {'production', 'prod'}
 
-    # Konfigurasi Database MySQL
+    # Konfigurasi Database MySQL (tidak dipakai lagi; dibiarkan agar kode lama tidak error)
     MYSQL_HOST = os.getenv('MYSQL_HOST', os.getenv('MYSQLHOST', '127.0.0.1'))
     MYSQL_PORT = int(os.getenv('MYSQL_PORT', os.getenv('MYSQLPORT', '3306')))
     MYSQL_USER = os.getenv('MYSQL_USER', os.getenv('MYSQLUSER', 'rtconnect'))
@@ -77,23 +79,16 @@ class Config:
                 raise RuntimeError('Production requires RT_SIGNING_PIN_HASH.')
             if cls.STORAGE_BACKEND == 'local':
                 raise RuntimeError('Production requires private S3-compatible storage.')
-            database_url = os.getenv('MYSQL_URL') or os.getenv('DATABASE_URL')
-            if database_url and not database_url.startswith(('mysql://', 'mysql+pymysql://')):
-                raise RuntimeError('DATABASE_URL must use mysql:// or mysql+pymysql://.')
-            if database_url:
-                parsed_database_url = urlparse(database_url)
-                if not parsed_database_url.hostname or not parsed_database_url.path.strip('/'):
-                    raise RuntimeError('DATABASE_URL must include a MySQL host and database name.')
-                if not parsed_database_url.password and not any(os.getenv(name) for name in ('MYSQLPASSWORD', 'MYSQL_PASSWORD', 'DB_PASSWORD')):
-                    raise RuntimeError('Production requires a non-empty MySQL password.')
-            if not database_url and not (os.getenv('MYSQLHOST') or os.getenv('MYSQL_HOST') or os.getenv('DB_HOST')):
-                raise RuntimeError('Production requires a MySQL connection URL or host.')
-            if not database_url and not (os.getenv('MYSQLPASSWORD') or os.getenv('MYSQL_PASSWORD') or os.getenv('DB_PASSWORD')):
-                raise RuntimeError('Production requires a non-empty MySQL password.')
-            if not cls.MYSQL_SSL_CA:
-                raise RuntimeError('Production requires MYSQL_SSL_CA so the database certificate and host are verified.')
-            if cls.MYSQL_SSL_MODE == 'disabled':
-                raise RuntimeError('Production database connections must use TLS.')
+            database_url = os.getenv('SUPABASE_DB_URL') or os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL')
+            if not database_url:
+                raise RuntimeError('Production requires SUPABASE_DB_URL (PostgreSQL connection string).')
+            if not database_url.startswith(('postgresql://', 'postgres://')):
+                raise RuntimeError('SUPABASE_DB_URL must use postgresql://.')
+            parsed_database_url = urlparse(database_url)
+            if not parsed_database_url.hostname or not parsed_database_url.path.strip('/'):
+                raise RuntimeError('SUPABASE_DB_URL must include a host and database name.')
+            if not parsed_database_url.password:
+                raise RuntimeError('SUPABASE_DB_URL must include the database password.')
             if not cls.CORS_ORIGINS:
                 raise RuntimeError('Production requires CORS_ORIGINS for the deployed Flutter web origin.')
             if not cls.RT_WHATSAPP_NUMBER:
@@ -109,8 +104,6 @@ class Config:
                         or parsed_origin.query or parsed_origin.fragment
                         or parsed_origin.username or parsed_origin.password):
                     raise RuntimeError('Each production CORS entry must be an exact HTTPS origin, such as https://app.example.com.')
-            if not os.path.isfile(cls.MYSQL_SSL_CA):
-                raise RuntimeError('MYSQL_SSL_CA must point to a readable CA certificate file.')
             if not cls.RT_SIGNING_PIN_HASH.startswith(('$2a$', '$2b$', '$2y$')):
                 raise RuntimeError('RT_SIGNING_PIN_HASH must be a bcrypt hash.')
             if not re.fullmatch(r'\d{1,5}', cls.RT_NUMBER) or not re.fullmatch(r'\d{1,5}', cls.RW_NUMBER):

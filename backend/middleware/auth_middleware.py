@@ -3,7 +3,7 @@ from functools import wraps
 from flask import request, jsonify
 import jwt
 from config import Config
-from database.db import query_one
+from services.user_service import get_user
 
 def generate_token(user_id: int, role: str, email: str) -> str:
     """Generate a JWT with the configured expiration period."""
@@ -33,10 +33,7 @@ def jwt_required(f):
         try:
             payload = jwt.decode(token, Config.JWT_SECRET, algorithms=['HS256'])
             user_id = int(payload['sub'])
-            user = query_one(
-                "SELECT user_id, nik, nama_lengkap, email, nomor_telepon, alamat, nomor_rt, nomor_rw, role, tanda_tangan_url, is_active FROM users WHERE user_id = %s",
-                (user_id,)
-            )
+            user = get_user(payload.get('role'), user_id)
             if not user or not user['is_active']:
                 return jsonify({
                     'success': False,

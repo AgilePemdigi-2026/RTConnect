@@ -20,9 +20,13 @@ def _s3_client():
         import boto3
     except ImportError as exc:
         raise RuntimeError('boto3 is required when STORAGE_BACKEND is set to s3.') from exc
+    from botocore.config import Config as BotoConfig
+
     options = {
         'region_name': Config.S3_REGION,
         'endpoint_url': Config.S3_ENDPOINT_URL,
+        # Supabase Storage (S3-compatible) hanya mendukung path-style URL.
+        'config': BotoConfig(signature_version='s3v4', s3={'addressing_style': 'path'}),
     }
     if Config.S3_ACCESS_KEY_ID:
         options['aws_access_key_id'] = Config.S3_ACCESS_KEY_ID

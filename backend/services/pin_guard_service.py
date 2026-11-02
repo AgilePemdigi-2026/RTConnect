@@ -8,7 +8,7 @@ PIN untuk akun RT tersebut dikunci selama ``LOCK_MINUTES`` menit.
 import bcrypt
 
 from config import Config
-from database.db import get_connection
+from database.db import transaction
 
 MAX_ATTEMPTS = 5
 LOCK_MINUTES = 15
@@ -41,85 +41,57 @@ def _pin_matches(pin: str) -> bool:
 
 
 def verify_signing_pin(rt_id: int, pin: str) -> PinCheckResult:
-    conn = get_connection()
-    try:
-        conn.begin()
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "INSERT IGNORE INTO rt_pin_attempts (rt_id, gagal_count, locked_until) VALUES (%s, 0, NULL)",
-                (rt_id,),
-            )
-            cursor.execute(
-                """SELECT gagal_count,
-                          locked_until IS NOT NULL AND locked_until > NOW() AS is_locked,
-                          CEIL(TIMESTAMPDIFF(SECOND, NOW(), locked_until) / 60) AS sisa_menit
-                   FROM rt_pin_attempts WHERE rt_id = %s FOR UPDATE""",
-                (rt_id,),
-            )
-            row = cursor.fetchone()
+    with transaction() as cursor:
+        cursor.execute(
+            "INSERT INTO rt_pin_attempts (rt_id, gagal_count, locked_until) VALUES (%s, 0, NULL) "
+            "ON CONFLICT (rt_id) DO NOTHING",
+            (rt_id,),
+        )
+        cursor.execute(
+            """SELECT gagal_count,
+                      (locked_until IS NOT NULL AND locked_until > LOCALTIMESTAMP) AS is_locked,
+                      CEIL(EXTRACT(EPOCH FROM (locked_until - LOCALTIMESTAMP)) / 60) AS sisa_menit
+               FROM rt_pin_attempts WHERE rt_id = %s FOR UPDATE""",
+            (rt_id,),
+        )
+        row = cursor.fetchone()
 
-            if row['is_locked']:
-                conn.commit()
-                minutes = max(int(row['sisa_menit'] or 1), 1)
-                return PinCheckResult(
-                    False, 429, 'PIN_LOCKED',
-                    f'PIN terkunci karena salah {MAX_ATTEMPTS} kali. Coba lagi dalam {minutes} menit.',
-                    locked_minutes=minutes,
-                )
-
-            if _pin_matches(pin):
-                cursor.execute(
-                    "UPDATE rt_pin_attempts SET gagal_count = 0, locked_until = NULL WHERE rt_id = %s",
-                    (rt_id,),
-                )
-                conn.commit()
-                return PinCheckResult(True)
-
-            failed = row['gagal_count'] + 1
-            if failed >= MAX_ATTEMPTS:
-                cursor.execute(
-                    """UPDATE rt_pin_attempts
-                       SET gagal_count = 0, locked_until = NOW() + INTERVAL %s MINUTE
-                       WHERE rt_id = %s""",
-                    (LOCK_MINUTES, rt_id),
-                )
-                conn.commit()
-                return PinCheckResult(
-                    False, 429, 'PIN_LOCKED',
-                    f'PIN salah {MAX_ATTEMPTS} kali. PIN dikunci selama {LOCK_MINUTES} menit.',
-                    locked_minutes=LOCK_MINUTES,
-                )
-
-            cursor.execute(
-                "UPDATE rt_pin_attempts SET gagal_count = %s, locked_until = NULL WHERE rt_id = %s",
-                (failed, rt_id),
-            )
-            conn.commit()
-            remaining = MAX_ATTEMPTS - failed
+        if row['is_locked']:
+            minutes = max(int(row['sisa_menit'] or 1), 1)
             return PinCheckResult(
-                False, 401, 'INVALID_PIN',
-                f'PIN Otorisasi Ketua RT salah. Sisa percobaan: {remaining}',
-                remaining_attempts=remaining,
+                False, 423, 'PIN_LOCKED',
+                f'PIN terkunci karena salah {MAX_ATTEMPTS} kali. Coba lagi dalam {minutes} menit.',
+                locked_minutes=minutes,
             )
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
 
-
-def reset_pin_attempts(rt_id: int):
-    """Mereset hitungan percobaan PIN untuk keperluan testing atau administrasi."""
-    conn = get_connection()
-    try:
-        with conn.cursor() as cursor:
+        if _pin_matches(pin):
             cursor.execute(
                 "UPDATE rt_pin_attempts SET gagal_count = 0, locked_until = NULL WHERE rt_id = %s",
                 (rt_id,),
             )
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+            return PinCheckResult(True)
+
+        failed = row['gagal_count'] + 1
+        if failed >= MAX_ATTEMPTS:
+            cursor.execute(
+                """UPDATE rt_pin_attempts
+                   SET gagal_count = 0, locked_until = LOCALTIMESTAMP + make_interval(mins => %s)
+                   WHERE rt_id = %s""",
+                (LOCK_MINUTES, rt_id),
+            )
+            return PinCheckResult(
+                False, 423, 'PIN_LOCKED',
+                f'PIN salah {MAX_ATTEMPTS} kali. PIN dikunci selama {LOCK_MINUTES} menit.',
+                locked_minutes=LOCK_MINUTES,
+            )
+
+        cursor.execute(
+            "UPDATE rt_pin_attempts SET gagal_count = %s, locked_until = NULL WHERE rt_id = %s",
+            (failed, rt_id),
+        )
+        remaining = MAX_ATTEMPTS - failed
+        return PinCheckResult(
+            False, 403, 'INVALID_PIN',
+            f'PIN Otorisasi Ketua RT salah. Sisa percobaan: {remaining}',
+            remaining_attempts=remaining,
+        )
