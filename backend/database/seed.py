@@ -7,9 +7,9 @@ import bcrypt
 from config import Config
 
 try:
-    from database.db import execute, query_one
+    from database.db import close_pool, execute_returning, query_one
 except ImportError:
-    from db import execute, query_one
+    from db import close_pool, execute_returning, query_one
 
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
@@ -54,16 +54,17 @@ def _seed_public_references(rt_id):
             continue
 
         existing = query_one(
-            "SELECT knowledge_id FROM knowledge_base WHERE judul_dokumen = %s",
+            "SELECT knowledge_id FROM knowledgebase WHERE judul = %s",
             (judul,),
         )
         if existing:
             # Dokumen lama mungkin dibuat sebelum kolom kode_sumber ada.
-            execute(
-                """UPDATE knowledge_chunks
+            execute_returning(
+                """UPDATE knowledgechunk
                    SET kode_sumber = %s
                    WHERE knowledge_id = %s
-                     AND (kode_sumber IS NULL OR kode_sumber = '')""",
+                     AND (kode_sumber IS NULL OR kode_sumber = '')
+                   RETURNING chunk_id""",
                 (source_id, existing['knowledge_id']),
             )
             linked += 1
@@ -74,16 +75,16 @@ def _seed_public_references(rt_id):
         keywords.extend(document.get('contoh_pertanyaan') or [])
         kata_kunci = (' '.join(keywords) or judul)[:255]
 
-        knowledge_id = execute(
-            """INSERT INTO knowledge_base
-               (judul_dokumen, kategori, isi_dokumen, diunggah_oleh_rt)
-               VALUES (%s, %s, %s, %s)""",
-            (judul, kategori, konten, rt_id),
-        )
-        execute(
-            """INSERT INTO knowledge_chunks
+        knowledge_id = execute_returning(
+            """INSERT INTO knowledgebase
+               (judul, kategori, isi_dokumen, sumber, uploaded_by)
+               VALUES (%s, %s, %s, %s, %s) RETURNING knowledge_id""",
+            (judul, kategori, konten, 'Referensi publik pemerintah', rt_id),
+        )['knowledge_id']
+        execute_returning(
+            """INSERT INTO knowledgechunk
                (knowledge_id, urutan_chunk, isi_chunk, kata_kunci, kode_sumber)
-               VALUES (%s, %s, %s, %s, %s)""",
+               VALUES (%s, %s, %s, %s, %s) RETURNING chunk_id""",
             (knowledge_id, 1, konten, kata_kunci, source_id),
         )
         inserted += 1
@@ -96,7 +97,7 @@ def seed_database(include_demo_users=None):
     if include_demo_users and Config.IS_PRODUCTION:
         raise RuntimeError('Demo users must never be seeded in production.')
 
-    print("=== Memulai seeding data RTConnect ke MySQL ===")
+    print("=== Memulai seeding data RTConnect ke Supabase (PostgreSQL) ===")
 
     # 1. Master Jenis Surat
     surat_types = [
@@ -107,11 +108,12 @@ def seed_database(include_demo_users=None):
     ]
 
     for kode, nama, template, syarat in surat_types:
-        existing = query_one("SELECT jenis_surat_id FROM jenis_surat WHERE kode_surat = %s", (kode,))
+        existing = query_one("SELECT jenis_surat_id FROM jenissurat WHERE kode_surat = %s", (kode,))
         if not existing:
-            execute(
-                "INSERT INTO jenis_surat (kode_surat, nama_surat, template_dokumen, persyaratan_dokumen) VALUES (%s, %s, %s, %s)",
-                (kode, nama, template, syarat)
+            execute_returning(
+                """INSERT INTO jenissurat (kode_surat, nama_jenis, template_surat, persyaratan_dokumen, butuh_ttd_basah)
+                   VALUES (%s, %s, %s, %s, %s) RETURNING jenis_surat_id""",
+                (kode, nama, template, syarat, False)
             )
             print(f"  [+] Jenis Surat: {nama}")
 
@@ -124,19 +126,26 @@ def seed_database(include_demo_users=None):
              '0000000000', 'Alamat warga untuk pengujian', 'warga'),
         ]
         for nik, nama, email, password, phone, alamat, role in default_users:
-            existing = query_one("SELECT user_id FROM users WHERE email = %s OR nik = %s", (email, nik))
+            table = 'rt' if role == 'rt' else 'warga'
+            existing = query_one(f"SELECT nik FROM {table} WHERE lower(email) = lower(%s) OR nik = %s", (email, nik))
             if not existing:
-                execute(
-                    """INSERT INTO users
-                       (nik, nama_lengkap, email, password_hash, nomor_telepon, alamat, nomor_rt, nomor_rw, role)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (nik, nama, email, hash_password(password), phone, alamat, Config.RT_NUMBER, Config.RW_NUMBER, role)
-                )
+                if role == 'rt':
+                    execute_returning(
+                        """INSERT INTO rt (nik, nama, jabatan, email, password_hash, no_telp, nomor_rt, nomor_rw)
+                           VALUES (%s, %s, 'Ketua RT', %s, %s, %s, %s, %s) RETURNING rt_id""",
+                        (nik, nama, email, hash_password(password), phone, Config.RT_NUMBER, Config.RW_NUMBER)
+                    )
+                else:
+                    execute_returning(
+                        """INSERT INTO warga (nik, nama, email, password_hash, no_telp, alamat, nomor_rt, nomor_rw)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING warga_id""",
+                        (nik, nama, email, hash_password(password), phone, alamat, Config.RT_NUMBER, Config.RW_NUMBER)
+                    )
                 print(f"  [+] Development-only user: {nama} ({role.upper()})")
 
     # 3. Knowledge base for lexical Tanya RT search
-    rt_user = query_one("SELECT user_id FROM users WHERE role = 'rt' LIMIT 1")
-    rt_id = rt_user['user_id'] if rt_user else None
+    rt_user = query_one("SELECT rt_id FROM rt ORDER BY rt_id LIMIT 1")
+    rt_id = rt_user['rt_id'] if rt_user else None
 
     bylaws = [
         (
@@ -157,19 +166,19 @@ def seed_database(include_demo_users=None):
     ]
 
     for judul, kategori, isi in bylaws:
-        existing = query_one("SELECT knowledge_id FROM knowledge_base WHERE judul_dokumen = %s", (judul,))
+        existing = query_one("SELECT knowledge_id FROM knowledgebase WHERE judul = %s", (judul,))
         if not existing:
-            kb_id = execute(
-                "INSERT INTO knowledge_base (judul_dokumen, kategori, isi_dokumen, diunggah_oleh_rt) VALUES (%s, %s, %s, %s)",
-                (judul, kategori, isi, rt_id)
-            )
+            kb_id = execute_returning(
+                "INSERT INTO knowledgebase (judul, kategori, isi_dokumen, sumber, uploaded_by) VALUES (%s, %s, %s, %s, %s) RETURNING knowledge_id",
+                (judul, kategori, isi, f'Tata tertib {Config.RT_AREA}', rt_id)
+            )['knowledge_id']
             print(f"  [+] Knowledge Base: {judul}")
 
             # Chunking Dokumen
             lines = [line.strip() for line in isi.split('\n') if line.strip()]
             for idx, chunk in enumerate(lines):
-                execute(
-                    "INSERT INTO knowledge_chunks (knowledge_id, urutan_chunk, isi_chunk, kata_kunci) VALUES (%s, %s, %s, %s)",
+                execute_returning(
+                    "INSERT INTO knowledgechunk (knowledge_id, urutan_chunk, isi_chunk, kata_kunci) VALUES (%s, %s, %s, %s) RETURNING chunk_id",
                     (kb_id, idx + 1, chunk, judul)
                 )
 
@@ -183,4 +192,7 @@ def seed_database(include_demo_users=None):
     print("[SUCCESS] Seeding basis data RTConnect berhasil!")
 
 if __name__ == '__main__':
-    seed_database()
+    try:
+        seed_database()
+    finally:
+        close_pool()

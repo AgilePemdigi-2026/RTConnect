@@ -1,0 +1,113 @@
+﻿
+== chatmessage   (PK: message_id)
+   message_id                   int32                      PK NOT NULL
+   chat_session_id              int32                      NOT NULL FK -> chatsession.chat_session_id
+   pengirim                     public.pengirim_enum       NOT NULL
+   isi_pesan                    text                       NOT NULL
+   intent_terdeteksi            character varying          
+   entity_terdeteksi            character varying          
+   tanggal_kirim                timestamp without time zone default=CURRENT_TIMESTAMP
+
+== chatsession   (PK: chat_session_id)
+   chat_session_id              int32                      PK NOT NULL
+   warga_id                     int32                      NOT NULL FK -> warga.warga_id
+   status                       public.status_chat_enum    default=berlangsung
+   started_at                   timestamp without time zone default=CURRENT_TIMESTAMP
+   ended_at                     timestamp without time zone 
+
+== draftsurat   (PK: draft_id)
+   draft_id                     int32                      PK NOT NULL
+   pengajuan_id                 int32                      NOT NULL FK -> pengajuansurat.pengajuan_id
+   isi_draft                    text                       NOT NULL
+   versi_ke                     int32                      default=1
+   dibuat_oleh_ai               boolean                    default=True
+   tanggal_dibuat               timestamp without time zone default=CURRENT_TIMESTAMP
+
+== jenissurat   (PK: jenis_surat_id)
+   jenis_surat_id               int32                      PK NOT NULL
+   nama_jenis                   character varying          NOT NULL
+   template_surat               text                       
+   butuh_ttd_basah              boolean                    default=False
+
+== knowledgebase   (PK: knowledge_id)
+   knowledge_id                 int32                      PK NOT NULL
+   judul                        character varying          NOT NULL
+   kategori                     character varying          
+   isi_dokumen                  text                       NOT NULL
+   sumber                       character varying          
+   uploaded_by                  int32                      FK -> rt.rt_id
+   tanggal_upload               timestamp without time zone default=CURRENT_TIMESTAMP
+   updated_at                   timestamp without time zone default=CURRENT_TIMESTAMP
+
+== knowledgechunk   (PK: chunk_id)
+   chunk_id                     int32                      PK NOT NULL
+   knowledge_id                 int32                      NOT NULL FK -> knowledgebase.knowledge_id
+   urutan_chunk                 int32                      NOT NULL
+   isi_chunk                    text                       NOT NULL
+   embedding_vector             jsonb                      
+   tanggal_dibuat               timestamp without time zone default=CURRENT_TIMESTAMP
+
+== notifikasi   (PK: notifikasi_id)
+   notifikasi_id                int32                      PK NOT NULL
+   penerima_tipe                public.penerima_tipe_enum  NOT NULL
+   warga_id                     int32                      FK -> warga.warga_id
+   rt_id                        int32                      FK -> rt.rt_id
+   pengajuan_id                 int32                      FK -> pengajuansurat.pengajuan_id
+   chat_session_id              int32                      FK -> chatsession.chat_session_id
+   isi_notifikasi               character varying          NOT NULL
+   status_baca                  boolean                    default=False
+   tanggal_kirim                timestamp without time zone default=CURRENT_TIMESTAMP
+
+== pengajuansurat   (PK: pengajuan_id)
+   pengajuan_id                 int32                      PK NOT NULL
+   warga_id                     int32                      NOT NULL FK -> warga.warga_id
+   jenis_surat_id               int32                      NOT NULL FK -> jenissurat.jenis_surat_id
+   tujuan_surat                 character varying          NOT NULL
+   tanggal_pengajuan            timestamp without time zone default=CURRENT_TIMESTAMP
+   status                       public.status_pengajuan_enum default=menunggu_review
+   alasan_penolakan             character varying          
+   catatan_revisi               character varying          
+   rt_id                        int32                      FK -> rt.rt_id
+
+== retrievallog   (PK: retrieval_id)
+   retrieval_id                 int32                      PK NOT NULL
+   message_id                   int32                      NOT NULL FK -> chatmessage.message_id
+   chunk_id                     int32                      NOT NULL FK -> knowledgechunk.chunk_id
+   skor_relevansi               numeric                    
+   tanggal_retrieval            timestamp without time zone default=CURRENT_TIMESTAMP
+
+== rt   (PK: rt_id)
+   rt_id                        int32                      PK NOT NULL
+   nik                          character varying          NOT NULL
+   nama                         character varying          NOT NULL
+   jabatan                      character varying          NOT NULL
+   no_telp                      character varying          
+   email                        character varying          
+   password_hash                character varying          NOT NULL
+   salt                         character varying          
+   tanda_tangan_digital         character varying          
+   created_at                   timestamp without time zone default=CURRENT_TIMESTAMP
+
+== suratfinal   (PK: surat_final_id)
+   surat_final_id               int32                      PK NOT NULL
+   pengajuan_id                 int32                      NOT NULL FK -> pengajuansurat.pengajuan_id
+   rt_id                        int32                      NOT NULL FK -> rt.rt_id
+   file_pdf_path                character varying          
+   jenis_ttd                    public.jenis_ttd_enum      NOT NULL
+   status_konfirmasi_ttd        public.status_konfirmasi_ttd_enum default=pending
+   tanggal_ttd                  timestamp without time zone 
+   status_pengambilan           public.status_pengambilan_enum default=siap_diambil
+   tanggal_terbit               timestamp without time zone 
+   tanggal_diambil              timestamp without time zone 
+
+== warga   (PK: warga_id)
+   warga_id                     int32                      PK NOT NULL
+   nik                          character varying          NOT NULL
+   nama                         character varying          NOT NULL
+   alamat                       character varying          NOT NULL
+   no_telp                      character varying          
+   email                        character varying          
+   password_hash                character varying          NOT NULL
+   salt                         character varying          
+   tanda_tangan_digital         character varying          
+   created_at                   timestamp without time zone default=CURRENT_TIMESTAMP

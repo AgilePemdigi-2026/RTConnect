@@ -315,8 +315,8 @@ def search_knowledge_base(query: str) -> dict:
     chunks = query_all("""
         SELECT c.chunk_id, c.knowledge_id, c.urutan_chunk, c.isi_chunk,
                c.kata_kunci, c.kode_sumber,
-               k.judul_dokumen, k.kategori, k.isi_dokumen AS document_text
-        FROM knowledge_chunks c
-        JOIN knowledge_base k ON c.knowledge_id = k.knowledge_id
+               k.judul AS judul_dokumen, k.kategori, k.isi_dokumen AS document_text
+        FROM knowledgechunk c
+        JOIN knowledgebase k ON c.knowledge_id = k.knowledge_id
     """)
     return search_chunks(query, chunks)

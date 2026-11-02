@@ -1,13 +1,15 @@
 from flask import Blueprint, request, jsonify
-from database.db import query_all, query_one, execute
+from database.db import query_all, query_one, execute, execute_returning, transaction
 from middleware.auth_middleware import jwt_required, roles_accepted
+from services.notification_service import add_notification
 from services.rag_service import search_knowledge_base
+from services.user_service import first_rt_id
 
 chatbot_bp = Blueprint('chatbot', __name__, url_prefix='/api/v1/chatbot')
 
 @chatbot_bp.route('/query', methods=['POST'])
 @jwt_required
-@roles_accepted('warga', 'rt', 'admin')
+@roles_accepted('warga')
 def ask_chatbot():
     """
     API-014: Search the Tanya RT knowledge base and escalate low matches.
@@ -30,53 +32,55 @@ def ask_chatbot():
 
     # Kelola Sesi Obrolan
     if not session_id:
-        session_id = execute(
-            "INSERT INTO chat_sessions (warga_id, status_sesi) VALUES (%s, 'berlangsung')",
+        session_id = execute_returning(
+            "INSERT INTO chatsession (warga_id, status) VALUES (%s, 'berlangsung') RETURNING chat_session_id",
             (user['user_id'],)
-        )
+        )['chat_session_id']
     else:
         try:
             session_id = int(session_id)
         except (TypeError, ValueError):
             return jsonify({'success': False, 'message': 'ID sesi tidak valid', 'data': None, 'error': 'INVALID_SESSION'}), 400
-        existing = query_one("SELECT session_id, warga_id FROM chat_sessions WHERE session_id = %s", (session_id,))
+        existing = query_one("SELECT chat_session_id AS session_id, warga_id FROM chatsession WHERE chat_session_id = %s", (session_id,))
         if not existing:
             return jsonify({'success': False, 'message': 'Sesi tidak ditemukan', 'data': None, 'error': 'NOT_FOUND'}), 404
         if existing['warga_id'] != user['user_id']:
             return jsonify({'success': False, 'message': 'Akses ditolak', 'data': None, 'error': 'FORBIDDEN'}), 403
 
-    # 1. Catat pertanyaan warga ke tabel chat_messages
+    # 1. Catat pertanyaan warga ke tabel chatmessage
     execute(
-        "INSERT INTO chat_messages (session_id, pengirim, isi_pesan) VALUES (%s, 'warga', %s)",
+        "INSERT INTO chatmessage (chat_session_id, pengirim, isi_pesan) VALUES (%s, 'warga', %s)",
         (session_id, query_text)
     )
 
     # 2. Find matching knowledge with lexical retrieval
     rag_result = search_knowledge_base(query_text)
 
-    # 3. Catat balasan sistem AI ke tabel chat_messages
-    execute(
-        """INSERT INTO chat_messages 
-           (session_id, pengirim, isi_pesan, top_chunk_id, similarity_score) 
-           VALUES (%s, 'sistem_ai', %s, %s, %s)""",
-        (session_id, rag_result['answer'], rag_result['top_chunk_id'], rag_result['similarity_score'])
-    )
-
-    # 4. Jika dieskalasi, perbarui status sesi dan buat notifikasi ke RT
-    if rag_result['is_escalated']:
-        execute("UPDATE chat_sessions SET status_sesi = 'dieskalasi' WHERE session_id = %s", (session_id,))
-        rt_user = query_one("SELECT user_id FROM users WHERE role = 'rt' LIMIT 1")
-        if rt_user:
-            execute(
-                """INSERT INTO notifikasi (penerima_id, tipe_notifikasi, judul, pesan_notifikasi, tautan_tujuan)
-                   VALUES (%s, 'eskalasi_chat', %s, %s, %s)""",
-                (
-                    rt_user['user_id'],
-                    'Eskalasi Pertanyaan Warga',
-                    f"Warga ({user['nama_lengkap']}) menanyakan hal di luar basis data: '{query_text[:50]}...'",
-                    f"/chat/{session_id}"
-                )
+    # 3. Catat balasan sistem AI ke chatmessage; chunk sumber & skornya ke retrievallog
+    escalated = rag_result['is_escalated']
+    rt_id = first_rt_id() if escalated else None
+    with transaction() as cur:
+        cur.execute(
+            """INSERT INTO chatmessage (chat_session_id, pengirim, isi_pesan)
+               VALUES (%s, 'sistem_ai', %s) RETURNING message_id""",
+            (session_id, rag_result['answer'])
+        )
+        message_id = cur.fetchone()['message_id']
+        if rag_result['top_chunk_id'] is not None:
+            cur.execute(
+                "INSERT INTO retrievallog (message_id, chunk_id, skor_relevansi) VALUES (%s, %s, %s)",
+                (message_id, rag_result['top_chunk_id'], rag_result['similarity_score'])
             )
+
+        # 4. Jika dieskalasi, perbarui status sesi dan buat notifikasi ke RT
+        if escalated:
+            cur.execute("UPDATE chatsession SET status = 'dieskalasi' WHERE chat_session_id = %s", (session_id,))
+            if rt_id:
+                add_notification(
+                    'rt', rt_id, 'eskalasi_chat', 'Eskalasi Pertanyaan Warga',
+                    f"Warga ({user['nama_lengkap']}) menanyakan hal di luar basis data: '{query_text[:50]}...'",
+                    f"/chat/{session_id}", chat_session_id=session_id, cur=cur
+                )
 
     return jsonify({
         'success': True,
@@ -97,15 +101,17 @@ def ask_chatbot():
 
 @chatbot_bp.route('/sessions', methods=['GET'])
 @jwt_required
+@roles_accepted('warga')
 def get_user_sessions():
     """Mengambil riwayat percakapan pengguna"""
     user_id = request.current_user['user_id']
     sessions = query_all(
-        """SELECT s.session_id, s.status_sesi, s.started_at,
-                  (SELECT isi_pesan FROM chat_messages WHERE session_id = s.session_id ORDER BY waktu_kirim DESC LIMIT 1) as pesan_terakhir
-           FROM chat_sessions s
+        """SELECT s.chat_session_id AS session_id, s.status AS status_sesi, s.started_at,
+                  (SELECT m.isi_pesan FROM chatmessage m WHERE m.chat_session_id = s.chat_session_id
+                   ORDER BY m.tanggal_kirim DESC, m.message_id DESC LIMIT 1) AS pesan_terakhir
+           FROM chatsession s
            WHERE s.warga_id = %s
-           ORDER BY s.started_at DESC""",
+           ORDER BY s.started_at DESC, s.chat_session_id DESC""",
         (user_id,)
     )
     return jsonify({
@@ -120,7 +126,7 @@ def get_user_sessions():
 def get_session_messages(session_id: int):
     """Mengambil seluruh pesan dalam suatu sesi percakapan"""
     user = request.current_user
-    sess = query_one("SELECT warga_id FROM chat_sessions WHERE session_id = %s", (session_id,))
+    sess = query_one("SELECT warga_id FROM chatsession WHERE chat_session_id = %s", (session_id,))
     if not sess:
         return jsonify({'success': False, 'message': 'Sesi tidak ditemukan', 'data': None, 'error': 'NOT_FOUND'}), 404
 
@@ -128,7 +134,13 @@ def get_session_messages(session_id: int):
         return jsonify({'success': False, 'message': 'Akses ditolak', 'data': None, 'error': 'FORBIDDEN'}), 403
 
     messages = query_all(
-        "SELECT message_id, pengirim, isi_pesan, top_chunk_id, similarity_score, waktu_kirim FROM chat_messages WHERE session_id = %s ORDER BY waktu_kirim ASC",
+        """SELECT m.message_id, m.pengirim, m.isi_pesan,
+                  r.chunk_id AS top_chunk_id, r.skor_relevansi AS similarity_score,
+                  m.tanggal_kirim AS waktu_kirim
+           FROM chatmessage m
+           LEFT JOIN retrievallog r ON r.message_id = m.message_id
+           WHERE m.chat_session_id = %s
+           ORDER BY m.tanggal_kirim ASC, m.message_id ASC""",
         (session_id,)
     )
 
