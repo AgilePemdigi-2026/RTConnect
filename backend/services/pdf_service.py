@@ -13,29 +13,20 @@ from services.file_storage import read_bytes
 def _user_paragraph(value, style):
     return Paragraph(escape(str(value or '-')).replace('\n', '<br/>'), style)
 
-def generate_official_letter_pdf(
+def generate_official_letter_pdf_bytes(
     application: dict,
     resident: dict,
     letter_type: dict,
     official_letter_number: str,
-    rt_user: dict,
-    output_filename: str = None
-) -> str:
+    rt_user: dict
+) -> bytes:
     """
-    Menghasilkan file PDF surat dengan kop komunitas, data pemohon,
-    isi draf pengantar, dan tempelan gambar tanda tangan digital Ketua RT (UC-09).
+    Menghasilkan bytes PDF resmi langsung di memori dengan kop komunitas,
+    data pemohon, isi draf pengantar, dan tanda tangan digital (UC-09).
     """
-    os.makedirs(Config.LETTERS_FOLDER, exist_ok=True)
-
-    if not output_filename:
-        safe_num = official_letter_number.replace('/', '_').replace('\\', '_')
-        output_filename = f"Surat_{safe_num}.pdf"
-
-    pdf_path = os.path.join(Config.LETTERS_FOLDER, output_filename)
-
-    # Inisialisasi dokumen A4 dengan margin standar 2 cm
+    buffer = io.BytesIO()
     doc = SimpleDocTemplate(
-        pdf_path,
+        buffer,
         pagesize=A4,
         leftMargin=54,
         rightMargin=54,
@@ -244,4 +235,33 @@ def generate_official_letter_pdf(
 
     # Build PDF
     doc.build(story)
+    return buffer.getvalue()
+
+
+def generate_official_letter_pdf(
+    application: dict,
+    resident: dict,
+    letter_type: dict,
+    official_letter_number: str,
+    rt_user: dict,
+    output_filename: str = None
+) -> str:
+    """
+    Menghasilkan file PDF surat dan menyimpannya di filesystem lokal.
+    """
+    pdf_bytes = generate_official_letter_pdf_bytes(
+        application=application,
+        resident=resident,
+        letter_type=letter_type,
+        official_letter_number=official_letter_number,
+        rt_user=rt_user
+    )
+    os.makedirs(Config.LETTERS_FOLDER, exist_ok=True)
+    if not output_filename:
+        safe_num = official_letter_number.replace('/', '_').replace('\\', '_')
+        output_filename = f"Surat_{safe_num}.pdf"
+
+    pdf_path = os.path.join(Config.LETTERS_FOLDER, output_filename)
+    with open(pdf_path, 'wb') as f:
+        f.write(pdf_bytes)
     return pdf_path

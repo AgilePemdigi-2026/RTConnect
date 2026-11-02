@@ -119,11 +119,23 @@ def seed_database(include_demo_users=None):
 
     # Demo accounts exist only for local development and isolated CI databases.
     if include_demo_users:
+        seed_assets_dir = os.path.join(os.path.dirname(__file__), 'seed_assets')
+        signatures_dir = Config.SIGNATURES_FOLDER
+        os.makedirs(signatures_dir, exist_ok=True)
+        if os.path.exists(seed_assets_dir):
+            import shutil
+            for filename in os.listdir(seed_assets_dir):
+                src = os.path.join(seed_assets_dir, filename)
+                dest = os.path.join(signatures_dir, filename)
+                if os.path.isfile(src) and not os.path.exists(dest):
+                    shutil.copy2(src, dest)
+                    print(f"  [+] Copied seed signature: {filename}")
+
         default_users = [
             ('0000000000000001', 'Test RT User', 'rt@example.test', 'LocalTestOnly#2026',
-             '0000000000', 'Alamat RT untuk pengujian', 'rt'),
+             '0000000000', 'Alamat RT untuk pengujian', 'rt', 'signatures/rt_indra_signature.png'),
             ('0000000000000002', 'Test Resident', 'resident@example.test', 'LocalTestOnly#2026',
-             '0000000000', 'Alamat warga untuk pengujian', 'warga'),
+             '0000000000', 'Alamat warga untuk pengujian', 'warga', 'signatures/warga_dafin_signature.png'),
         ]
         for nik, nama, email, password, phone, alamat, role in default_users:
             table = 'rt' if role == 'rt' else 'warga'
@@ -142,6 +154,12 @@ def seed_database(include_demo_users=None):
                         (nik, nama, email, hash_password(password), phone, alamat, Config.RT_NUMBER, Config.RW_NUMBER)
                     )
                 print(f"  [+] Development-only user: {nama} ({role.upper()})")
+            elif not existing.get('tanda_tangan_url'):
+                execute(
+                    "UPDATE users SET tanda_tangan_url = %s WHERE user_id = %s",
+                    (sig_key, existing['user_id'])
+                )
+                print(f"  [+] Updated development signature for: {nama}")
 
     # 3. Knowledge base for lexical Tanya RT search
     rt_user = query_one("SELECT rt_id FROM rt ORDER BY rt_id LIMIT 1")

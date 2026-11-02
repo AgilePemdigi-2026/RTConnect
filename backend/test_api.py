@@ -9,6 +9,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app import create_app
 
 def run_api_tests():
+    from config import Config
+    from routes.letter_routes import reset_pin_attempts
+    if not Config.RT_SIGNING_PIN_HASH and not Config.IS_PRODUCTION:
+        import bcrypt
+        Config.RT_SIGNING_PIN_HASH = bcrypt.hashpw(b'123456', bcrypt.gensalt()).decode('utf-8')
+    if not Config.RT_WHATSAPP_NUMBER and not Config.IS_PRODUCTION:
+        Config.RT_WHATSAPP_NUMBER = '6281234567890'
+
     app = create_app()
     client = app.test_client()
 
@@ -52,7 +60,9 @@ def run_api_tests():
         'password': 'LocalTestOnly#2026'
     })
     assert res_rt.status_code == 200, f"Login RT gagal: {res_rt.data}"
-    rt_token = res_rt.get_json()['data']['token']
+    rt_data = res_rt.get_json()['data']
+    rt_token = rt_data['token']
+    rt_user_id = rt_data['user']['user_id']
     rt_headers = {'Authorization': f'Bearer {rt_token}'}
     print("[PASS] 4. Login Ketua RT (API-002): OK -> Token berhasil diperoleh untuk role 'rt'")
 
@@ -113,14 +123,63 @@ def run_api_tests():
     assert res_dec.get_json()['data']['status'] == 'disetujui'
     print(f"[PASS] 11. Keputusan RT (API-010): OK -> Pengajuan #{pengajuan_id} disetujui")
 
-    # 12. RT Menandatangani Digital (Tempelan Gambar Tanda Tangan & PDF Generation - UC-09 / API-011)
+    # 12. Uji Brute-Force PIN RT & Otorisasi TTD Digital (API-011 / UC-09 / AUD-11)
+    # Skenario A: Percobaan 1-4 dengan PIN salah (harus HTTP 401 dan counter berkurang)
+    for attempt in range(1, 5):
+        res_wrong = client.post(f'/api/v1/letters/{pengajuan_id}/sign-digital', headers=rt_headers, json={
+            'pin': f'99999{attempt}'
+        })
+        assert res_wrong.status_code == 401, f"Percobaan {attempt} salah PIN gagal menghasilkan 401: {res_wrong.data}"
+        wrong_json = res_wrong.get_json()
+        assert wrong_json['error'] == 'INVALID_PIN'
+        assert wrong_json['data']['sisa_percobaan'] == 5 - attempt
+
+    # Skenario B: Percobaan ke-5 dengan PIN salah (harus memicu lockout HTTP 429)
+    res_lock = client.post(f'/api/v1/letters/{pengajuan_id}/sign-digital', headers=rt_headers, json={
+        'pin': '999995'
+    })
+    assert res_lock.status_code == 429, f"Percobaan ke-5 gagal memicu 429: {res_lock.data}"
+    lock_json = res_lock.get_json()
+    assert lock_json['error'] == 'PIN_LOCKED'
+    assert lock_json['data']['sisa_percobaan'] == 0
+    assert lock_json['data']['sisa_menit'] == 15
+
+    # Skenario C: Percobaan ke-6 saat status akun terkunci (bahkan dengan PIN benar '123456' tetap diblokir 429)
+    res_blocked = client.post(f'/api/v1/letters/{pengajuan_id}/sign-digital', headers=rt_headers, json={
+        'pin': '123456'
+    })
+    assert res_blocked.status_code == 429, f"Percobaan ke-6 saat terkunci tidak mengembalikan 429: {res_blocked.data}"
+    assert res_blocked.get_json()['error'] == 'PIN_LOCKED'
+    print(f"[PASS] 12a. Proteksi Brute-Force PIN RT (AUD-11): OK -> 5x gagal memicu HTTP 429 Lockout 15 menit & blokir percobaan ke-6")
+
+    # Reset lockout untuk melanjutkan pengujian signing resmi dengan PIN benar
+    reset_pin_attempts(rt_user_id)
+
+    # Skenario D: Otorisasi digital berhasil dengan PIN valid '123456' setelah reset
     res_sign = client.post(f'/api/v1/letters/{pengajuan_id}/sign-digital', headers=rt_headers, json={
         'pin': '123456'
     })
     assert res_sign.status_code == 200, f"Sign digital gagal: {res_sign.data}"
     sign_data = res_sign.get_json()['data']
     assert sign_data['status'] == 'selesai'
-    print(f"[PASS] 12. Pengesahan TTD Digital (API-011 / UC-09): OK -> Nomor: {sign_data['nomor_surat_resmi']}, Dokumen PDF terbit")
+    print(f"[PASS] 12b. Pengesahan TTD Digital (API-011 / UC-09): OK -> Nomor: {sign_data['nomor_surat_resmi']}, Dokumen PDF terbit")
+
+    # Skenario E: Pengesahan digital langsung dari status 'diajukan' (alur satu klik aplikasi Flutter)
+    res_direct_apply = client.post('/api/v1/letters/apply', headers=warga_headers, json={
+        'jenis_surat_id': dom_type['jenis_surat_id'],
+        'keperluan': 'Keperluan mendesak tanda tangan digital langsung',
+        'metode_tanda_tangan': 'digital'
+    })
+    assert res_direct_apply.status_code == 201
+    direct_id = res_direct_apply.get_json()['data']['pengajuan_id']
+
+    res_direct_sign = client.post(f'/api/v1/letters/{direct_id}/sign-digital', headers=rt_headers, json={
+        'pin': '123456'
+    })
+    assert res_direct_sign.status_code == 200, f"Sign digital langsung dari diajukan gagal: {res_direct_sign.data}"
+    direct_data = res_direct_sign.get_json()['data']
+    assert direct_data['status'] == 'selesai'
+    print(f"[PASS] 12c. Pengesahan TTD Digital Langsung dari 'diajukan' (Alur Mobile Flutter): OK -> ID #{direct_id} sukses disahkan")
 
     # 13. Unduh File PDF Resmi (API-013)
     res_dl = client.get(f'/api/v1/letters/{pengajuan_id}/download', headers=warga_headers)
@@ -209,8 +268,27 @@ def run_api_tests():
     assert res_read.status_code == 200
     print(f"[PASS] 20. Tandai Notifikasi Terbaca: OK -> Notifikasi #{first_notif_id} ditandai dibaca")
 
+    # 21. Validasi Integritas Cache Embedding RAG (AUD-10 / ROAD-05)
+    from chatbot.chatbot_service import validasi_integritas_cache
+    is_valid, reason = validasi_integritas_cache()
+    assert is_valid == True, f"Cache RAG tidak valid: {reason}"
+    print(f"[PASS] 21. Validasi Cache RAG (AUD-10): OK -> {reason}")
+
+    # 22. Uji Generator PDF Resmi In-Memory (Stateless & S3 Ready) (AUD-09 / ROAD-05)
+    from services.pdf_service import generate_official_letter_pdf_bytes
+    dummy_pdf = generate_official_letter_pdf_bytes(
+        application=apply_data,
+        resident=res_detail.get_json()['data'],
+        letter_type={'nama_surat': dom_type['nama_surat'], 'kode_surat': dom_type['kode_surat']},
+        official_letter_number=sign_data['nomor_surat_resmi'],
+        rt_user={'nama_lengkap': 'Test RT User', 'tanda_tangan_url': 'signatures/rt_indra_signature.png'}
+    )
+    assert isinstance(dummy_pdf, bytes)
+    assert dummy_pdf.startswith(b'%PDF-')
+    print(f"[PASS] 22. In-Memory PDF Generator (AUD-09): OK -> Berhasil menghasilkan {len(dummy_pdf)} bytes PDF valid")
+
     print("\n==================================================")
-    print("  SELURUH 20 PENGUJIAN SISTEM LENGKAP BERHASIL 100%! ")
+    print("  SELURUH 22 PENGUJIAN SISTEM LENGKAP BERHASIL 100%! ")
     print("==================================================")
 
 if __name__ == '__main__':
