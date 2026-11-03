@@ -24,6 +24,27 @@ class _LetterApplicationScreenState
   final _formKey = GlobalKey<FormState>();
   final _keperluanController = TextEditingController();
 
+  // Data lengkap pemohon (format Surat Pengantar / Keterangan RT)
+  static const _jenisKelaminOptions = ['Laki-laki', 'Perempuan'];
+  static const _agamaOptions = [
+    'Islam', 'Kristen', 'Katolik', 'Hindu', 'Buddha', 'Konghucu',
+    'Kepercayaan terhadap Tuhan YME',
+  ];
+  static const _statusKawinOptions = ['Belum Kawin', 'Kawin', 'Cerai Hidup', 'Cerai Mati'];
+
+  final _pekerjaanController = TextEditingController();
+  final _tempatLahirController = TextEditingController();
+  final _tanggalLahirController = TextEditingController();
+  final _kewarganegaraanController = TextEditingController(text: 'WNI');
+  final _nomorKkController = TextEditingController();
+  final _tujuanController = TextEditingController();
+  final _keteranganController = TextEditingController();
+  String? _jenisKelamin;
+  String? _agama;
+  String? _statusKawin;
+  DateTime? _tanggalLahir;
+  bool _prefilled = false;
+
   int? _selectedJenisSuratId;
   String? _selectedSyarat;
   String _metodeTtd = 'digital'; // 'digital' or 'basah'
@@ -31,8 +52,85 @@ class _LetterApplicationScreenState
   String? _lampiranFileName;
 
   @override
+  void initState() {
+    super.initState();
+    _prefillFromLastApplication();
+  }
+
+  /// Isi otomatis dari pengajuan terakhir supaya warga cukup mengecek ulang.
+  Future<void> _prefillFromLastApplication() async {
+    try {
+      final last = await ref.read(letterRepositoryProvider).getMyLastApplicantData();
+      if (last == null || !mounted) return;
+      String text(String key) => last[key]?.toString() ?? '';
+      String? option(String key, List<String> options) =>
+          options.contains(last[key]) ? last[key] as String : null;
+      setState(() {
+        _pekerjaanController.text = text('pekerjaan');
+        _tempatLahirController.text = text('tempat_lahir');
+        _kewarganegaraanController.text = text('kewarganegaraan').isEmpty ? 'WNI' : text('kewarganegaraan');
+        _nomorKkController.text = text('nomor_kk');
+        _tujuanController.text = text('tujuan');
+        _keteranganController.text = text('keterangan_lain');
+        _jenisKelamin = option('jenis_kelamin', _jenisKelaminOptions);
+        _agama = option('agama', _agamaOptions);
+        _statusKawin = option('status_kawin', _statusKawinOptions);
+        _tanggalLahir = DateTime.tryParse(text('tanggal_lahir'));
+        _tanggalLahirController.text = _formatTanggal(_tanggalLahir);
+        _prefilled = true;
+      });
+    } catch (_) {
+      // Gagal memuat data lama tidak menghalangi pengisian manual.
+    }
+  }
+
+  String _formatTanggal(DateTime? d) => d == null
+      ? ''
+      : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  String _isoTanggal(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  Future<void> _pickTanggalLahir() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _tanggalLahir ?? DateTime(now.year - 20),
+      firstDate: DateTime(1900),
+      lastDate: now.subtract(const Duration(days: 1)),
+      helpText: 'Pilih tanggal lahir',
+    );
+    if (picked != null) {
+      setState(() {
+        _tanggalLahir = picked;
+        _tanggalLahirController.text = _formatTanggal(picked);
+      });
+    }
+  }
+
+  Map<String, String> _dataPemohon() => {
+        'pekerjaan': _pekerjaanController.text.trim(),
+        'jenis_kelamin': _jenisKelamin ?? '',
+        'tempat_lahir': _tempatLahirController.text.trim(),
+        'tanggal_lahir': _tanggalLahir == null ? '' : _isoTanggal(_tanggalLahir!),
+        'agama': _agama ?? '',
+        'status_kawin': _statusKawin ?? '',
+        'kewarganegaraan': _kewarganegaraanController.text.trim(),
+        'nomor_kk': _nomorKkController.text.trim(),
+        'tujuan': _tujuanController.text.trim(),
+        'keterangan_lain': _keteranganController.text.trim(),
+      };
+
+  @override
   void dispose() {
     _keperluanController.dispose();
+    _pekerjaanController.dispose();
+    _tempatLahirController.dispose();
+    _tanggalLahirController.dispose();
+    _kewarganegaraanController.dispose();
+    _nomorKkController.dispose();
+    _tujuanController.dispose();
+    _keteranganController.dispose();
     super.dispose();
   }
 
@@ -75,6 +173,7 @@ class _LetterApplicationScreenState
           keperluan: _keperluanController.text.trim(),
           metodeTandaTangan: _metodeTtd,
           lampiranPath: _lampiranPath,
+          dataPemohon: _dataPemohon(),
         );
 
     if (mounted) {
@@ -177,7 +276,7 @@ class _LetterApplicationScreenState
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'NIK, Nama, dan Alamat Anda akan otomatis disematkan ke dalam format resmi surat pengantar RT.',
+                              'NIK, Nama, dan Alamat diambil dari akun Anda. Lengkapi data pemohon di bawah sesuai KTP/KK.',
                               style: AppTypography.caption.copyWith(
                                 color: const Color(0xFF1E3A8A),
                                 height: 1.3,
@@ -321,7 +420,11 @@ class _LetterApplicationScreenState
                 ],
                 const SizedBox(height: AppSpacing.lg),
 
-                // Section 2: Keperluan / Alasan
+                // Section 2: Data Pemohon (format Surat Pengantar / Keterangan)
+                _buildDataPemohonSection(),
+                const SizedBox(height: AppSpacing.lg),
+
+                // Section 3: Keperluan / Alasan
                 RTTextField(
                   label: 'Keperluan / Alasan Pengajuan',
                   hint:
@@ -389,6 +492,161 @@ class _LetterApplicationScreenState
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildDataPemohonSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Data Pemohon',
+          style: AppTypography.labelBold.copyWith(
+            color: AppColors.textPrimary,
+            fontSize: 14,
+          ),
+        ),
+        if (_prefilled) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Terisi otomatis dari pengajuan terakhir. Periksa kembali dan ubah bila ada yang berbeda.',
+            style: AppTypography.caption.copyWith(color: AppColors.success, height: 1.3),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.sm),
+        RTTextField(
+          label: 'Pekerjaan',
+          hint: 'Contoh: Karyawan Swasta',
+          controller: _pekerjaanController,
+          isRequired: true,
+          validator: (v) => (v == null || v.trim().isEmpty) ? 'Pekerjaan wajib diisi' : null,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _buildOptionDropdown(
+          label: 'Jenis Kelamin',
+          value: _jenisKelamin,
+          options: _jenisKelaminOptions,
+          onChanged: (v) => setState(() => _jenisKelamin = v),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        RTTextField(
+          label: 'Tempat Lahir',
+          hint: 'Contoh: Sidoarjo',
+          controller: _tempatLahirController,
+          isRequired: true,
+          validator: (v) => (v == null || v.trim().isEmpty) ? 'Tempat lahir wajib diisi' : null,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        GestureDetector(
+          onTap: _pickTanggalLahir,
+          child: AbsorbPointer(
+            child: RTTextField(
+              label: 'Tanggal Lahir',
+              hint: 'Pilih tanggal lahir',
+              controller: _tanggalLahirController,
+              isRequired: true,
+              isReadOnly: true,
+              suffixIcon: const Icon(Icons.calendar_month_rounded, color: AppColors.textSecondary),
+              validator: (_) => _tanggalLahir == null ? 'Tanggal lahir wajib diisi' : null,
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _buildOptionDropdown(
+          label: 'Agama',
+          value: _agama,
+          options: _agamaOptions,
+          onChanged: (v) => setState(() => _agama = v),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _buildOptionDropdown(
+          label: 'Status Perkawinan',
+          value: _statusKawin,
+          options: _statusKawinOptions,
+          onChanged: (v) => setState(() => _statusKawin = v),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        RTTextField(
+          label: 'Kewarganegaraan',
+          controller: _kewarganegaraanController,
+          isRequired: true,
+          validator: (v) => (v == null || v.trim().isEmpty) ? 'Kewarganegaraan wajib diisi' : null,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        RTTextField(
+          label: 'Nomor Kartu Keluarga (KK)',
+          hint: '16 digit nomor KK',
+          controller: _nomorKkController,
+          isRequired: true,
+          keyboardType: TextInputType.number,
+          validator: (v) => RegExp(r'^\d{16}$').hasMatch(v?.trim() ?? '')
+              ? null
+              : 'Nomor KK harus 16 digit angka',
+        ),
+        const SizedBox(height: AppSpacing.md),
+        RTTextField(
+          label: 'Tujuan',
+          hint: 'Contoh: Kantor Kelurahan Tawangsari / Polsek Taman',
+          controller: _tujuanController,
+          isRequired: true,
+          helperText: 'Instansi atau pihak yang dituju surat ini.',
+          validator: (v) => (v == null || v.trim().isEmpty) ? 'Tujuan wajib diisi' : null,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        RTTextField(
+          label: 'Keterangan Lain-lain (Opsional)',
+          hint: 'Isi bila ada keterangan tambahan',
+          controller: _keteranganController,
+          maxLines: 2,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOptionDropdown({
+    required String label,
+    required String? value,
+    required List<String> options,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$label *',
+          style: AppTypography.labelBold.copyWith(color: AppColors.textPrimary, fontSize: 13),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: DropdownButtonFormField<String>(
+            // Key berubah saat data terisi otomatis agar nilai awal ikut diperbarui.
+            key: ValueKey('$label-$value'),
+            initialValue: value,
+            dropdownColor: Colors.white,
+            isExpanded: true,
+            decoration: InputDecoration(
+              hintText: 'Pilih ${label.toLowerCase()}...',
+              hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 14),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+            icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondary),
+            items: options
+                .map((o) => DropdownMenuItem<String>(
+                      value: o,
+                      child: Text(o, style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w600)),
+                    ))
+                .toList(),
+            onChanged: onChanged,
+            validator: (v) => v == null ? '$label wajib dipilih' : null,
+          ),
+        ),
+      ],
     );
   }
 

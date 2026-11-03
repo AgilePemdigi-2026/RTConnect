@@ -9,6 +9,7 @@ class ApiEndpoints {
   static const String letterTypes = '/letters/types'; // API-004
   static const String applyLetter = '/letters/apply'; // API-005
   static const String myApplications = '/letters/my-applications'; // API-006
+  static const String myLastApplicantData = '/letters/my-last-data'; // isi otomatis data pemohon
   static const String incomingQueue = '/letters/incoming-queue'; // API-007
   static String letterDetail(int id) => '/letters/$id'; // API-008
   static String resubmitLetter(int id) => '/letters/$id/resubmit'; // API-009
