@@ -1,9 +1,87 @@
-*.py[cod]
+# ==========================================
+# Flutter / Dart
+# ==========================================
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# ==========================================
+# Environment & Secrets
+# ==========================================
 .env
-.env.*
+*.env.*
 !.env.example
+backend/.env
+backend/*.env.*
+!backend/.env.example
+android/key.properties
+android/app/*.jks
+android/app/*.keystore
+
+# ==========================================
+# Python / Local Dev
+# ==========================================
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+backend/.venv/
+backend/__pycache__/
+backend/*/__pycache__/
+backend/uploads/generated_letters/*.pdf
+backend/uploads/attachments/*
+backend/uploads/signatures/*
+!backend/uploads/generated_letters/.gitkeep
+!backend/uploads/attachments/.gitkeep
+!backend/uploads/signatures/.gitkeep
+
+# ==========================================
+# Chatbot Cache & Evaluation Data
+# ==========================================
 backend/chatbot/cache/
-backend/uploads/
 backend/chatbot/hasil_uji*.csv
+
+# ==========================================
+# Academic Documents, SRS, & UTS (Non-Runtime)
+# ==========================================
+UTS/
+monitoring/
+diagrams/
+uml/
+scripts/
+/assets/
+!frontend/assets/
+!frontend/assets/**
+*.zip
+*.docx
+
+# ==========================================
+# Project Planning & Knowledge Base (Obsidian)
+# ==========================================
+RTConnect-KnowledgeBase/
+
+# ==========================================
+# Temporary Dev Reports & Changelogs
+# ==========================================
+BACKEND_CHANGE_REPORT.md
+
+# ==========================================
+# IDE & Editor
+# ==========================================
+.idea/
+.vscode/
+*.iml
+.metadata
+*.swp
+*.swo
+
+# ==========================================
+# OS Generated
+# ==========================================
+Thumbs.db
+Desktop.ini
+.DS_Store

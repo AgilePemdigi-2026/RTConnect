@@ -29,6 +29,7 @@ class PinCheckResult:
             payload['sisa_percobaan'] = self.remaining_attempts
         if self.locked_minutes is not None:
             payload['sisa_menit'] = self.locked_minutes
+            payload['sisa_percobaan'] = 0
         return payload or None
 
 

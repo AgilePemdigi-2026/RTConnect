@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../../../core/router/route_names.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -99,6 +101,27 @@ class NotificationFeedScreen extends ConsumerWidget {
                           final repo = ref.read(notificationRepositoryProvider);
                           await repo.markAsRead(notifId, isDibaca: true);
                           ref.invalidate(notificationsProvider);
+                        }
+
+                        final tautan = item['tautan_tujuan']?.toString();
+                        if (tautan != null && tautan.isNotEmpty && context.mounted) {
+                          if (tautan.startsWith('/letters/')) {
+                            final segments = tautan.split('/').where((s) => s.isNotEmpty).toList();
+                            if (segments.length >= 2) {
+                              final id = segments[1];
+                              if (segments.length >= 3 && segments[2] == 'download') {
+                                context.push('/surat/preview/$id');
+                              } else {
+                                context.push('/letters/$id');
+                              }
+                            }
+                          } else if (tautan.startsWith('/chat')) {
+                            context.push(RouteNames.chatbot);
+                          } else {
+                            try {
+                              context.push(tautan);
+                            } catch (_) {}
+                          }
                         }
                       },
                       onLongPress: () async {
