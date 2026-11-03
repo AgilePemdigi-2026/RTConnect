@@ -67,6 +67,7 @@ class LetterSubmitController extends StateNotifier<LetterSubmitState> {
     required String keperluan,
     required String metodeTandaTangan,
     String? lampiranPath,
+    Map<String, String> dataPemohon = const {},
   }) async {
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {
@@ -75,15 +76,17 @@ class LetterSubmitController extends StateNotifier<LetterSubmitState> {
         keperluan: keperluan,
         metodeTandaTangan: metodeTandaTangan,
         lampiranPath: lampiranPath,
+        dataPemohon: dataPemohon,
       );
       state = state.copyWith(isLoading: false, result: res);
       _ref.invalidate(myApplicationsProvider);
       return true;
     } catch (e) {
-      state = state.copyWith(
-        isLoading: false,
-        errorMessage: e.toString().replaceAll('Exception: ', ''),
-      );
+      // Tampilkan pesan validasi dari server (mis. "Nomor KK harus 16 digit")
+      final message = (e is DioException && e.error is AppException)
+          ? (e.error as AppException).message
+          : e.toString().replaceAll('Exception: ', '');
+      state = state.copyWith(isLoading: false, errorMessage: message);
       return false;
     }
   }

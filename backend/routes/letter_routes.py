@@ -9,6 +9,9 @@ from config import Config
 from database.db import query_all, query_one, execute_returning, transaction
 from middleware.auth_middleware import jwt_required, roles_accepted
 from services.ai_draft_service import generate_letter_draft
+from services.applicant_data import (
+    SELECT_COLUMNS as APPLICANT_COLUMNS, columns_to_api, parse_applicant_data, to_api,
+)
 from services.file_storage import read_bytes, store_bytes, store_upload
 from services.letter_number_service import generate_unique_letter_number
 from services.notification_service import add_notification
@@ -22,12 +25,12 @@ letter_bp = Blueprint('letters', __name__, url_prefix='/api/v1/letters')
 JENIS_COLUMNS = """j.jenis_surat_id, j.kode_surat, j.nama_jenis AS nama_surat,
                    j.template_surat AS template_dokumen, j.persyaratan_dokumen"""
 
-PENGAJUAN_COLUMNS = """p.pengajuan_id, p.nomor_pengajuan, p.warga_id, p.rt_id, p.jenis_surat_id,
+PENGAJUAN_COLUMNS = f"""p.pengajuan_id, p.nomor_pengajuan, p.warga_id, p.rt_id, p.jenis_surat_id,
        p.tujuan_surat AS keperluan, p.metode_tanda_tangan, p.berkas_lampiran_url,
        (SELECT d.isi_draft FROM draftsurat d WHERE d.pengajuan_id = p.pengajuan_id
          ORDER BY d.versi_ke DESC, d.draft_id DESC LIMIT 1) AS draf_ai_konten,
        p.status, p.catatan_revisi, p.alasan_penolakan, p.tanggal_pengajuan,
-       p.tanggal_diverifikasi, p.tanggal_selesai"""
+       p.tanggal_diverifikasi, p.tanggal_selesai, {APPLICANT_COLUMNS}"""
 
 STATUS_PENGESAHAN = """CASE WHEN sf.surat_final_id IS NULL THEN NULL
             WHEN sf.jenis_ttd::text = 'digital' THEN 'digital_sah'
@@ -102,6 +105,11 @@ def apply_letter():
     if metode_tanda_tangan not in {'digital', 'basah'}:
         return jsonify({'success': False, 'message': 'Metode tanda tangan tidak valid', 'data': None, 'error': 'VALIDATION_ERROR'}), 400
 
+    # Data lengkap pemohon (pekerjaan, tgl lahir, agama, ...) disimpan per pengajuan
+    applicant, applicant_error = parse_applicant_data(data)
+    if applicant_error:
+        return jsonify({'success': False, 'message': applicant_error, 'data': None, 'error': 'VALIDATION_ERROR'}), 400
+
     jenis = get_jenis(jenis_surat_id)
     if not jenis:
         return jsonify({
@@ -120,17 +128,21 @@ def apply_letter():
             return jsonify({'success': False, 'message': str(error), 'data': None, 'error': 'INVALID_UPLOAD'}), 400
 
     # Susun draf deterministik dari template
-    draf_ai = generate_letter_draft(user, jenis, keperluan)
+    draf_ai = generate_letter_draft(user, jenis, keperluan, columns_to_api(applicant))
     nomor_pengajuan = generate_nomor_pengajuan()
 
     rt_id = first_rt_id()
+    applicant_columns = ''.join(f', {column}' for column in applicant)
+    applicant_params = ''.join(', %s' for _ in applicant)
     with transaction() as cur:
         cur.execute(
-            """INSERT INTO pengajuansurat
-               (nomor_pengajuan, warga_id, jenis_surat_id, tujuan_surat, metode_tanda_tangan, berkas_lampiran_url, status)
-               VALUES (%s, %s, %s, %s, %s, %s, 'diajukan')
+            f"""INSERT INTO pengajuansurat
+               (nomor_pengajuan, warga_id, jenis_surat_id, tujuan_surat, metode_tanda_tangan,
+                berkas_lampiran_url, status{applicant_columns})
+               VALUES (%s, %s, %s, %s, %s, %s, 'diajukan'{applicant_params})
                RETURNING pengajuan_id""",
-            (nomor_pengajuan, user['user_id'], jenis_surat_id, keperluan, metode_tanda_tangan, lampiran_url)
+            (nomor_pengajuan, user['user_id'], jenis_surat_id, keperluan, metode_tanda_tangan,
+             lampiran_url, *applicant.values())
         )
         pengajuan_id = cur.fetchone()['pengajuan_id']
         cur.execute(
@@ -251,10 +263,37 @@ def get_application_detail(id: int):
             'error': 'FORBIDDEN'
         }), 403
 
+    # Identitas wilayah & pengurus untuk pratinjau surat di aplikasi (sama dengan PDF)
+    app_data.update({
+        'kelurahan': Config.RT_KELURAHAN,
+        'kota_ttd': Config.RT_SIGNING_LOCATION,
+        'nama_ketua_rt': Config.RT_CHAIR_NAME,
+        'nama_ketua_rw': Config.RW_CHAIR_NAME,
+    })
     return jsonify({
         'success': True,
         'message': 'Detail pengajuan berhasil diambil',
-        'data': app_data,
+        'data': to_api(app_data),
+        'error': None
+    }), 200
+
+@letter_bp.route('/my-last-data', methods=['GET'])
+@jwt_required
+@roles_accepted('warga')
+def get_my_last_applicant_data():
+    """Data pemohon dari pengajuan terakhir warga, untuk mengisi otomatis form pengajuan baru."""
+    row = query_one(
+        f"""SELECT {APPLICANT_COLUMNS}
+            FROM pengajuansurat p
+            WHERE p.warga_id = %s AND p.pekerjaan IS NOT NULL
+            ORDER BY p.tanggal_pengajuan DESC, p.pengajuan_id DESC
+            LIMIT 1""",
+        (request.current_user['user_id'],)
+    )
+    return jsonify({
+        'success': True,
+        'message': 'Data pengajuan terakhir berhasil diambil' if row else 'Belum ada pengajuan sebelumnya',
+        'data': to_api(row) if row else None,
         'error': None
     }), 200
 
@@ -282,15 +321,22 @@ def resubmit_application(id: int):
     if not keperluan or len(keperluan) > 2000:
         return jsonify({'success': False, 'message': 'Keperluan wajib diisi dan maksimal 2000 karakter', 'data': None, 'error': 'VALIDATION_ERROR'}), 400
 
-    jenis = get_jenis(app_data['jenis_surat_id'])
-    new_draft = generate_letter_draft(user, jenis, keperluan)
+    # Warga boleh memperbaiki data pemohon saat revisi (field yang dikirim saja)
+    applicant_updates, applicant_error = parse_applicant_data(data, partial=True)
+    if applicant_error:
+        return jsonify({'success': False, 'message': applicant_error, 'data': None, 'error': 'VALIDATION_ERROR'}), 400
+    applicant = {**app_data, **columns_to_api(applicant_updates)}
 
+    jenis = get_jenis(app_data['jenis_surat_id'])
+    new_draft = generate_letter_draft(user, jenis, keperluan, applicant)
+
+    applicant_set = ''.join(f', {column} = %s' for column in applicant_updates)
     with transaction() as cur:
         cur.execute(
-            """UPDATE pengajuansurat
-               SET tujuan_surat = %s, status = 'diajukan', catatan_revisi = NULL
+            f"""UPDATE pengajuansurat
+               SET tujuan_surat = %s, status = 'diajukan', catatan_revisi = NULL{applicant_set}
                WHERE pengajuan_id = %s""",
-            (keperluan, id)
+            (keperluan, *applicant_updates.values(), id)
         )
         cur.execute(
             """INSERT INTO draftsurat (pengajuan_id, isi_draft, versi_ke, dibuat_oleh_ai)
@@ -446,8 +492,10 @@ def sign_digital(id: int):
 
     if not app_data:
         return jsonify({'success': False, 'message': 'Pengajuan surat tidak ditemukan', 'data': None, 'error': 'NOT_FOUND'}), 404
-    if app_data['status'] != 'disetujui':
-        return jsonify({'success': False, 'message': 'Pengajuan harus disetujui sebelum ditandatangani', 'data': None, 'error': 'INVALID_STATUS'}), 409
+    # PIN Ketua RT sekaligus menjadi otorisasi persetujuan, jadi pengajuan berstatus
+    # 'diajukan' boleh langsung disetujui + disahkan dalam satu langkah.
+    if app_data['status'] not in ('diajukan', 'disetujui'):
+        return jsonify({'success': False, 'message': 'Pengajuan ini tidak dalam status yang dapat disahkan', 'data': None, 'error': 'INVALID_STATUS'}), 409
 
     rt_user = request.current_user
     if Config.IS_PRODUCTION and not rt_user.get('tanda_tangan_url'):
@@ -508,7 +556,8 @@ def sign_digital(id: int):
 
         # Perbarui status pengajuan menjadi selesai
         cur.execute(
-            "UPDATE pengajuansurat SET status = 'selesai', tanggal_selesai = LOCALTIMESTAMP, rt_id = %s WHERE pengajuan_id = %s",
+            "UPDATE pengajuansurat SET status = 'selesai', tanggal_selesai = LOCALTIMESTAMP, "
+            "tanggal_diverifikasi = COALESCE(tanggal_diverifikasi, LOCALTIMESTAMP), rt_id = %s WHERE pengajuan_id = %s",
             (rt_user['user_id'], id)
         )
 

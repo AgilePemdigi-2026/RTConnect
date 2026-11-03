@@ -65,9 +65,17 @@ class Config:
     RW_NUMBER = os.getenv('RW_NUMBER', '08')
     RT_LETTER_CODE = os.getenv('RT_LETTER_CODE', 'GTA')
     RT_AREA = os.getenv('RT_AREA', 'RT 032 / RW 08 Griya Taman Asri')
-    RT_LOCATION_LINE_2 = os.getenv('RT_LOCATION_LINE_2', 'PERUMAHAN GRIYA TAMAN ASRI — KELURAHAN SEPANJANG')
+    RT_LOCATION_LINE_2 = os.getenv('RT_LOCATION_LINE_2', 'PERUMAHAN GRIYA TAMAN ASRI — KELURAHAN TAWANGSARI')
     RT_LOCATION_LINE_3 = os.getenv('RT_LOCATION_LINE_3', 'KECAMATAN TAMAN, KABUPATEN SIDOARJO — JAWA TIMUR 61257')
     RT_SIGNING_LOCATION = os.getenv('RT_SIGNING_LOCATION', 'Sidoarjo')
+
+    # Identitas wilayah & pengurus untuk Surat Pengantar / Keterangan
+    RT_PERUMAHAN = os.getenv('RT_PERUMAHAN', 'Griya Taman Asri')
+    RT_KELURAHAN = os.getenv('RT_KELURAHAN', 'Tawangsari')
+    RT_KECAMATAN = os.getenv('RT_KECAMATAN', 'Taman')
+    RT_KABUPATEN = os.getenv('RT_KABUPATEN', 'Kabupaten Sidoarjo')
+    RT_CHAIR_NAME = os.getenv('RT_CHAIR_NAME', 'Ahmad Dhafin')
+    RW_CHAIR_NAME = os.getenv('RW_CHAIR_NAME', 'Alfarisy')
 
     @classmethod
     def validate(cls):

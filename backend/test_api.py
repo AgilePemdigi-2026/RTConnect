@@ -72,10 +72,31 @@ def run_api_tests():
     print(f"[PASS] 6. Daftar Jenis Surat (API-004): OK -> Ditemukan {len(types)} jenis surat master")
 
     # 7. Warga Mengajukan Surat Domisili (Draf Template) (API-005)
+    PEMOHON = {
+        'pekerjaan': 'Karyawan Swasta', 'jenis_kelamin': 'Laki-laki',
+        'tempat_lahir': 'Sidoarjo', 'tanggal_lahir': '1995-08-17', 'agama': 'Islam',
+        'status_kawin': 'Belum Kawin', 'kewarganegaraan': 'WNI',
+        'nomor_kk': '3515080101950001', 'tujuan': 'Kantor Kelurahan Tawangsari',
+    }
+
+    # 7a. Tanpa data pemohon lengkap harus ditolak
+    res_incomplete = client.post('/api/v1/letters/apply', headers=warga_headers, json={
+        'jenis_surat_id': dom_type['jenis_surat_id'],
+        'keperluan': 'Tanpa data pemohon', 'metode_tanda_tangan': 'digital'
+    })
+    assert res_incomplete.status_code == 400, res_incomplete.data
+    res_bad_kk = client.post('/api/v1/letters/apply', headers=warga_headers, json={
+        'jenis_surat_id': dom_type['jenis_surat_id'], 'keperluan': 'KK salah',
+        'metode_tanda_tangan': 'digital', **PEMOHON, 'nomor_kk': '123'
+    })
+    assert res_bad_kk.status_code == 400 and 'KK' in res_bad_kk.get_json()['message']
+    print("[PASS] 7a. Validasi Data Pemohon: OK -> data kurang / KK salah ditolak")
+
     res_apply = client.post('/api/v1/letters/apply', headers=warga_headers, json={
         'jenis_surat_id': dom_type['jenis_surat_id'],
         'keperluan': 'Persyaratan pembukaan rekening bank syariah cabang Sidoarjo',
-        'metode_tanda_tangan': 'digital'
+        'metode_tanda_tangan': 'digital',
+        **PEMOHON,
     })
     assert res_apply.status_code == 201, f"Apply surat gagal: {res_apply.data}"
     apply_data = res_apply.get_json()['data']
@@ -83,7 +104,17 @@ def run_api_tests():
     nomor_pengajuan = apply_data['nomor_pengajuan']
     assert apply_data['status'] == 'diajukan'
     assert 'draf_ai' in apply_data
+    assert 'Karyawan Swasta' in apply_data['draf_ai'] and '17 Agustus 1995' in apply_data['draf_ai']
+    assert 'Kelurahan Tawangsari' in apply_data['draf_ai']
     print(f"[PASS] 7. Pengajuan Surat Warga (API-005): OK -> ID #{pengajuan_id} ({nomor_pengajuan}), draf template dibuat")
+
+    # 7b. Data pengajuan terakhir untuk isi otomatis form
+    res_last = client.get('/api/v1/letters/my-last-data', headers=warga_headers)
+    assert res_last.status_code == 200
+    last = res_last.get_json()['data']
+    assert last['pekerjaan'] == 'Karyawan Swasta' and last['tanggal_lahir'] == '1995-08-17'
+    assert last['tujuan'] == 'Kantor Kelurahan Tawangsari'
+    print("[PASS] 7b. Isi Otomatis Data Pemohon: OK -> data pengajuan terakhir dikembalikan")
 
     # 8. Riwayat Pengajuan Milik Warga (API-006)
     res_my_apps = client.get('/api/v1/letters/my-applications', headers=warga_headers)
@@ -133,7 +164,8 @@ def run_api_tests():
     res_apply_basah = client.post('/api/v1/letters/apply', headers=warga_headers, json={
         'jenis_surat_id': ktp_type['jenis_surat_id'],
         'keperluan': 'Perpanjangan KTP fisik tanda tangan basah di balai RT',
-        'metode_tanda_tangan': 'basah'
+        'metode_tanda_tangan': 'basah',
+        **PEMOHON,
     })
     assert res_apply_basah.status_code == 201
     basah_id = res_apply_basah.get_json()['data']['pengajuan_id']
@@ -147,7 +179,8 @@ def run_api_tests():
     res_apply_rev = client.post('/api/v1/letters/apply', headers=warga_headers, json={
         'jenis_surat_id': dom_type['jenis_surat_id'],
         'keperluan': 'Keperluan awal belum lengkap',
-        'metode_tanda_tangan': 'digital'
+        'metode_tanda_tangan': 'digital',
+        **PEMOHON,
     })
     rev_id = res_apply_rev.get_json()['data']['pengajuan_id']
 
@@ -159,10 +192,14 @@ def run_api_tests():
 
     # Warga resubmit perbaikan
     res_resubmit = client.put(f'/api/v1/letters/{rev_id}/resubmit', headers=warga_headers, json={
-        'keperluan': 'Surat keterangan domisili untuk pendaftaran kerja di Sidoarjo'
+        'keperluan': 'Surat keterangan domisili untuk pendaftaran kerja di Sidoarjo',
+        'pekerjaan': 'Wiraswasta'
     })
     assert res_resubmit.status_code == 200
     assert res_resubmit.get_json()['data']['status'] == 'diajukan'
+    assert 'Wiraswasta' in res_resubmit.get_json()['data']['draf_ai']
+    rev_detail = client.get(f'/api/v1/letters/{rev_id}', headers=warga_headers).get_json()['data']
+    assert rev_detail['pekerjaan'] == 'Wiraswasta' and rev_detail['agama'] == 'Islam'
     print(f"[PASS] 15. Resubmit Revisi Warga (API-009): OK -> Pengajuan #{rev_id} berhasil diajukan ulang")
 
     # 16. Chatbot Tanya RT — pertanyaan yang cocok dengan basis informasi

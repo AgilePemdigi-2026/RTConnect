@@ -302,7 +302,6 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
             final namaSurat = data['nama_surat']?.toString() ?? 'Surat Pengantar RT';
             final status = data['status']?.toString().toLowerCase() ?? 'diajukan';
             final keperluan = data['keperluan']?.toString() ?? '-';
-            final drafAi = data['draf_ai_konten']?.toString();
             final metode = data['metode_tanda_tangan']?.toString() ?? 'digital';
             final namaWarga = data['nama_lengkap']?.toString() ?? data['nama_warga']?.toString() ?? '-';
             final nik = data['nik']?.toString() ?? '-';
@@ -366,15 +365,9 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
 
                         // Realistic RT Official Letterhead Preview (Figma #68:2063)
                         _buildLetterheadPaperPreview(
-                          namaSurat: namaSurat,
-                          nomorResmi: nomorResmi ?? nomorPengajuan,
-                          namaWarga: namaWarga,
-                          nik: nik,
-                          alamat: alamat,
-                          keperluan: keperluan,
-                          drafAi: drafAi,
+                          data: data,
+                          nomorResmi: nomorResmi,
                           status: status,
-                          metode: metode,
                         ),
                         const SizedBox(height: 30),
                       ],
@@ -492,7 +485,7 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
                     const Icon(Icons.verified, size: 13, color: Color(0xFF059669)),
                     const SizedBox(width: 4),
                     Text(
-                      'Warga Tetap RT 04',
+                      'Warga Terdaftar',
                       style: AppTypography.caption.copyWith(
                         color: const Color(0xFF065F46),
                         fontWeight: FontWeight.w700,
@@ -785,18 +778,35 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
     );
   }
 
+  /// Pratinjau surat meniru blangko "Surat Pengantar / Keterangan" RT (sama dengan PDF).
   Widget _buildLetterheadPaperPreview({
-    required String namaSurat,
-    required String nomorResmi,
-    required String namaWarga,
-    required String nik,
-    required String alamat,
-    required String keperluan,
-    required String? drafAi,
+    required Map<String, dynamic> data,
+    required String? nomorResmi,
     required String status,
-    required String metode,
   }) {
-    final isDone = status == 'selesai' || status == 'disetujui';
+    String v(String key, [String fallback = '']) {
+      final value = data[key]?.toString().trim() ?? '';
+      return value.isEmpty ? fallback : value;
+    }
+
+    const bulan = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli',
+      'Agustus', 'September', 'Oktober', 'November', 'Desember',
+    ];
+    String tanggal(DateTime? d) => d == null ? '' : '${d.day} ${bulan[d.month - 1]} ${d.year}';
+
+    final isDone = status == 'selesai';
+    final rt = v('nomor_rt', '032');
+    final rw = v('nomor_rw', '08');
+    final nama = v('nama_lengkap', v('nama_warga'));
+    final tglLahir = tanggal(DateTime.tryParse(v('tanggal_lahir')));
+    final tempatTgl = [v('tempat_lahir'), tglLahir].where((e) => e.isNotEmpty).join(', ');
+    final kkKtp = [v('nomor_kk'), v('nik')].where((e) => e.isNotEmpty).join(' / ');
+    final alamat = v('alamat').isEmpty ? '' : '${v('alamat')}, RT $rt / RW $rw';
+    final tanggalSurat = tanggal(DateTime.tryParse(v('tanggal_terbit')) ?? DateTime.now());
+
+    const serif = TextStyle(fontFamily: 'serif', color: Colors.black, fontSize: 11.5, height: 1.35);
+    final bold = serif.copyWith(fontWeight: FontWeight.w700);
 
     return Container(
       decoration: BoxDecoration(
@@ -804,183 +814,144 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFCBD5E1)),
         boxShadow: const [
-          BoxShadow(
-            color: Color(0x12000000),
-            blurRadius: 16,
-            offset: Offset(0, 6),
-          ),
+          BoxShadow(color: Color(0x12000000), blurRadius: 16, offset: Offset(0, 6)),
         ],
       ),
-      padding: const EdgeInsets.all(AppSpacing.xl),
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 26),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Kop Surat RT Formal
+          // RT : ..  RW : ..  /  KELURAHAN : ..
+          Text('RT : $rt          RW : $rw', style: bold.copyWith(fontSize: 12.5)),
           Text(
-            'RUKUN TETANGGA 04 / RUKUN WARGA 07',
-            style: AppTypography.heading3.copyWith(
-              fontWeight: FontWeight.w800,
-              fontSize: 14,
-              letterSpacing: 0.5,
-            ),
-            textAlign: TextAlign.center,
+            'KELURAHAN : ${v('kelurahan', 'Tawangsari').toUpperCase()}',
+            style: bold.copyWith(fontSize: 12.5, decoration: TextDecoration.underline),
           ),
-          Text(
-            'KELURAHAN TAWANGSARI - KECAMATAN TAMAN',
-            style: AppTypography.caption.copyWith(
-              fontWeight: FontWeight.w700,
-              fontSize: 11,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          Text(
-            'KABUPATEN SIDOARJO, JAWA TIMUR',
-            style: AppTypography.caption.copyWith(
-              fontWeight: FontWeight.w500,
-              fontSize: 10,
-              color: AppColors.textSecondary,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
 
-          // Double underline kop
-          Container(height: 2, color: Colors.black87),
-          const SizedBox(height: 2),
-          Container(height: 0.8, color: Colors.black54),
-          const SizedBox(height: AppSpacing.md),
-
-          // Judul Surat & Nomor
-          Text(
-            namaSurat.toUpperCase(),
-            style: AppTypography.heading3.copyWith(
-              fontWeight: FontWeight.w800,
-              fontSize: 15,
-              decoration: TextDecoration.underline,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'Nomor: $nomorResmi',
-            style: AppTypography.caption.copyWith(fontWeight: FontWeight.w600),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: AppSpacing.lg),
-
-          // Body Text
-          Align(
-            alignment: Alignment.centerLeft,
+          // Judul + nomor
+          Center(
             child: Text(
-              'Yang bertanda tangan di bawah ini Ketua Rukun Tetangga 04 RW 07 Kelurahan Tawangsari, dengan ini menerangkan bahwa:',
-              style: AppTypography.caption.copyWith(height: 1.4),
+              'SURAT PENGANTAR / KETERANGAN',
+              textAlign: TextAlign.center,
+              style: bold.copyWith(fontSize: 14.5, decoration: TextDecoration.underline),
             ),
           ),
-          const SizedBox(height: AppSpacing.sm),
-
-          // Table / Citizen Details
-          _buildPaperFieldRow('Nama Lengkap', ': $namaWarga'),
-          _buildPaperFieldRow('NIK', ': $nik'),
-          _buildPaperFieldRow('Alamat Domisili', ': $alamat'),
-          _buildPaperFieldRow('Keperluan', ': $keperluan'),
-          const SizedBox(height: AppSpacing.sm),
-
-          Align(
-            alignment: Alignment.centerLeft,
+          Center(
             child: Text(
-              drafAi ??
-                  'Orang tersebut di atas adalah benar-benar warga kami yang bertempat tinggal di lingkungan RT 04 RW 07 dan berkelakuan baik. Surat pengantar ini dibuat untuk dipergunakan sebagaimana mestinya.',
-              style: AppTypography.caption.copyWith(height: 1.4),
+              'No. ${nomorResmi ?? '........................................'}',
+              textAlign: TextAlign.center,
+              style: bold.copyWith(fontSize: 12.5),
             ),
           ),
-          const SizedBox(height: AppSpacing.xl),
+          const SizedBox(height: 10),
 
-          // Signature Block
-          Align(
-            alignment: Alignment.centerRight,
-            child: SizedBox(
-              width: 180,
-              child: Column(
-                children: [
-                  Text('Tawangsari, 2024', style: AppTypography.caption),
-                  Text(
-                    'Ketua RT 04 / RW 07',
-                    style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 12),
+          Text('Yang bertanda tangan di bawah ini, menerangkan :', style: serif),
+          const SizedBox(height: 2),
+          _buildPaperFieldRow('Nama Lengkap', nama, serif),
+          _buildPaperFieldRow('A l a m a t', alamat, serif),
+          _buildPaperFieldRow('Pekerjaan', v('pekerjaan'), serif),
+          _buildPaperFieldRow('Jenis Kelamin', v('jenis_kelamin'), serif),
+          _buildPaperFieldRow('Tempat / tgl. lahir', tempatTgl, serif),
+          _buildPaperFieldRow('A g a m a', v('agama'), serif),
+          _buildPaperFieldRow('Kawin / tidak kawin', v('status_kawin'), serif),
+          _buildPaperFieldRow('Kewarganegaraan', v('kewarganegaraan'), serif),
+          _buildPaperFieldRow('Nomor KK / KTP', kkKtp, serif),
+          _buildPaperFieldRow('T u j u a n', v('tujuan'), serif),
+          _buildPaperFieldRow('K e p e r l u a n', v('keperluan'), serif),
+          _buildPaperFieldRow('', '', serif),
+          _buildPaperFieldRow('Keterangan lain-lain', v('keterangan_lain'), serif),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.only(left: 12),
+            child: Text('Demikian agar mendapat bantuan seperlunya', style: serif),
+          ),
+          const SizedBox(height: 14),
 
-                  // Digital Seal / QR / Physical Stamp Placeholder
-                  Container(
-                    width: 90,
-                    height: 70,
-                    decoration: BoxDecoration(
-                      color: isDone ? const Color(0xFFEFF6FF) : const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: isDone ? const Color(0xFF2563EB) : const Color(0xFFCBD5E1),
-                        style: isDone ? BorderStyle.solid : BorderStyle.none,
+          // Tanda tangan pemohon (kiri) & Ketua RT (kanan)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  children: [
+                    Text('Tanda tangan', style: serif),
+                    Text('Yang bersangkutan', style: serif),
+                    const SizedBox(height: 50),
+                    Text('( $nama )', style: serif, textAlign: TextAlign.center),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  children: [
+                    Text('${v('kota_ttd', 'Sidoarjo')}, $tanggalSurat',
+                        style: serif, textAlign: TextAlign.center),
+                    Text('Ketua RT. $rt', style: serif),
+                    SizedBox(
+                      height: 50,
+                      child: Center(
+                        child: isDone
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.verified_rounded, size: 16, color: Color(0xFF2563EB)),
+                                  const SizedBox(width: 4),
+                                  Text('Disahkan digital',
+                                      style: AppTypography.caption.copyWith(
+                                        color: const Color(0xFF2563EB),
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 10,
+                                      )),
+                                ],
+                              )
+                            : Text('[ belum disahkan ]',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.textMuted,
+                                  fontStyle: FontStyle.italic,
+                                  fontSize: 10,
+                                )),
                       ),
                     ),
-                    child: Center(
-                      child: isDone
-                          ? Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.qr_code_2_rounded, color: Color(0xFF2563EB), size: 36),
-                                Text(
-                                  'TERVERIFIKASI',
-                                  style: AppTypography.caption.copyWith(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.w800,
-                                    color: const Color(0xFF2563EB),
-                                  ),
-                                ),
-                              ],
-                            )
-                          : Text(
-                              '[ Draf Surat ]',
-                              style: AppTypography.caption.copyWith(
-                                color: AppColors.textMuted,
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  Text(
-                    '( Bambang Sutrisno )',
-                    style: AppTypography.caption.copyWith(
-                      fontWeight: FontWeight.w700,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ],
+                    Text('( ${v('nama_ketua_rt', '..........................')} )',
+                        style: serif, textAlign: TextAlign.center),
+                  ],
+                ),
               ),
-            ),
+            ],
+          ),
+          const SizedBox(height: 4),
+
+          // No. register RW + Mengetahui Ketua RW
+          Center(child: Text('No. ....................................', style: serif)),
+          const SizedBox(height: 6),
+          Center(child: Text('Mengetahui :', style: serif)),
+          Center(child: Text('Ketua RW. $rw', style: serif)),
+          const SizedBox(height: 46),
+          Center(
+            child: Text('( ${v('nama_ketua_rw', '..........................')} )', style: serif),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildPaperFieldRow(String label, String value) {
+  /// Satu baris isian: label, titik dua, dan nilai di atas garis titik-titik.
+  Widget _buildPaperFieldRow(String label, String value, TextStyle style) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      padding: const EdgeInsets.only(left: 12, top: 3),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          SizedBox(
-            width: 110,
-            child: Text(
-              label,
-              style: AppTypography.caption.copyWith(fontWeight: FontWeight.w500),
-            ),
-          ),
+          SizedBox(width: 118, child: Text(label, style: style)),
+          SizedBox(width: 12, child: Text(label.isEmpty ? '' : ':', style: style)),
           Expanded(
-            child: Text(
-              value,
-              style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700),
+            child: Container(
+              padding: const EdgeInsets.only(bottom: 1),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Color(0xFF9CA3AF), width: 0.8)),
+              ),
+              child: Text(value.isEmpty ? ' ' : value, style: style),
             ),
           ),
         ],
