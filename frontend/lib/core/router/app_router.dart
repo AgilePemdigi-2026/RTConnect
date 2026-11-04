@@ -141,9 +141,8 @@ class _MainNavigationShell extends ConsumerWidget {
 
     // Calculate active tab index: 0 = Pengajuan, 1 = Beranda, 2 = TanyaRT
     int currentIndex = -1;
-    if (currentLocation.startsWith('/warga/pengajuan') ||
-        currentLocation.startsWith('/rt/pengajuan') ||
-        currentLocation.startsWith('/letters')) {
+    if (currentLocation == RouteNames.wargaPengajuan ||
+        currentLocation == RouteNames.rtQueue) {
       currentIndex = 0;
     } else if (currentLocation == RouteNames.wargaHome ||
         currentLocation == RouteNames.rtHome) {
@@ -152,20 +151,24 @@ class _MainNavigationShell extends ConsumerWidget {
       currentIndex = 2;
     }
 
+    final bool showBottomNav = currentIndex != -1;
+
     return Scaffold(
       body: child,
-      bottomNavigationBar: RTBottomNavBar(
-        currentIndex: currentIndex,
-        onTap: (index) {
-          if (index == 0) {
-            context.go(isRT ? RouteNames.rtQueue : RouteNames.wargaPengajuan);
-          } else if (index == 1) {
-            context.go(isRT ? RouteNames.rtHome : RouteNames.wargaHome);
-          } else if (index == 2) {
-            context.go(RouteNames.chatbot);
-          }
-        },
-      ),
+      bottomNavigationBar: showBottomNav
+          ? RTBottomNavBar(
+              currentIndex: currentIndex,
+              onTap: (index) {
+                if (index == 0) {
+                  context.go(isRT ? RouteNames.rtQueue : RouteNames.wargaPengajuan);
+                } else if (index == 1) {
+                  context.go(isRT ? RouteNames.rtHome : RouteNames.wargaHome);
+                } else if (index == 2) {
+                  context.go(RouteNames.chatbot);
+                }
+              },
+            )
+          : null,
     );
   }
 }

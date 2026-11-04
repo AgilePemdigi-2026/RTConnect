@@ -6,7 +6,6 @@ import '../../../core/router/route_names.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../shared/widgets/rt_bottom_nav_bar.dart';
 import '../../../shared/widgets/rt_drawer_menu.dart';
 import '../../../shared/widgets/rt_status_badge.dart';
 import '../../auth/presentation/auth_controller.dart';
@@ -392,17 +391,7 @@ class WargaHomeScreen extends ConsumerWidget {
           ),
         ),
       ),
-      bottomNavigationBar: RTBottomNavBar(
-        currentIndex: 0,
-        onTap: (index) {
-          if (index == 0) return;
-          if (index == 1) {
-            context.push(RouteNames.wargaPengajuan);
-          } else if (index == 2) {
-            context.push(RouteNames.chatbot);
-          }
-        },
-      ),
+
     );
   }
 

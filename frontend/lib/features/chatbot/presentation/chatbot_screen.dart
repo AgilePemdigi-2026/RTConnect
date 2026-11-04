@@ -6,7 +6,6 @@ import '../../../core/router/route_names.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../shared/widgets/rt_bottom_nav_bar.dart';
 import 'chatbot_controller.dart';
 
 /// Screen 12: TanyaRT - Asisten AI Pintar Warga (Figma Node #68:1546)
@@ -543,17 +542,7 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: RTBottomNavBar(
-        currentIndex: 2,
-        onTap: (index) {
-          if (index == 2) return;
-          if (index == 0) {
-            context.go(RouteNames.wargaHome);
-          } else if (index == 1) {
-            context.push(RouteNames.wargaPengajuan);
-          }
-        },
-      ),
+
     );
   }
 }

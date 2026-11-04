@@ -5,7 +5,6 @@ import '../../../core/router/route_names.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../shared/widgets/rt_bottom_nav_bar.dart';
 import '../../../shared/widgets/rt_status_badge.dart';
 import 'letter_controller.dart';
 
@@ -243,19 +242,9 @@ class _LetterHistoryScreenState extends ConsumerState<LetterHistoryScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: RTBottomNavBar(
-        currentIndex: 1,
-        onTap: (index) {
-          if (index == 1) return;
-          if (index == 0) {
-            context.go(RouteNames.wargaHome);
-          } else if (index == 2) {
-            context.push(RouteNames.chatbot);
-          }
-        },
-      ),
+
       floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 60.0),
+        padding: const EdgeInsets.only(bottom: 12.0),
         child: SizedBox(
           height: 52,
           child: ElevatedButton.icon(
