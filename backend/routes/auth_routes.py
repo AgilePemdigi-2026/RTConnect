@@ -5,7 +5,7 @@ from config import Config
 from database.db import UniqueViolation, execute_returning
 from middleware.auth_middleware import generate_token, jwt_required
 from services.file_storage import store_upload
-from services.user_service import find_by_identity, nik_or_email_taken
+from services.user_service import find_by_identity, nik_or_email_taken, update_user_profile, update_user_signature
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/v1/auth')
 
@@ -21,7 +21,6 @@ def check_password(password: str, hashed: str) -> bool:
 @auth_bp.route('/register', methods=['POST'])
 def register():
     """API-001: Pendaftaran akun warga baru"""
-    # Dukung baik multipart/form-data maupun application/json
     if request.is_json:
         parsed_data = request.get_json(silent=True)
         data = parsed_data if isinstance(parsed_data, dict) else {}
@@ -202,6 +201,83 @@ def get_current_user_profile():
             'nomor_rw': user['nomor_rw'],
             'role': user['role'],
             'tanda_tangan_digital': user['tanda_tangan_url']
+        },
+        'error': None
+    }), 200
+
+@auth_bp.route('/me', methods=['PUT', 'PATCH'])
+@jwt_required
+def update_profile():
+    """API-004: Memperbarui data profil pengguna"""
+    user = request.current_user
+    parsed_data = request.get_json(silent=True)
+    data = parsed_data if isinstance(parsed_data, dict) else {}
+    nama = data.get('nama_lengkap', user['nama_lengkap']).strip()
+    no_telp = data.get('nomor_telepon', user['nomor_telepon']).strip()
+    alamat = data.get('alamat', user.get('alamat', '')).strip()
+    email = data.get('email', user['email']).strip()
+
+    updated = update_user_profile(user['role'], user['user_id'], nama, no_telp, alamat, email)
+    if not updated:
+        return jsonify({
+            'success': False,
+            'message': 'Gagal memperbarui profil pengguna',
+            'data': None,
+            'error': 'UPDATE_FAILED'
+        }), 500
+
+    return jsonify({
+        'success': True,
+        'message': 'Profil berhasil diperbarui',
+        'data': {
+            'user_id': updated['user_id'],
+            'nik': updated['nik'],
+            'nama_lengkap': updated['nama_lengkap'],
+            'email': updated['email'],
+            'nomor_telepon': updated['nomor_telepon'],
+            'alamat': updated['alamat'],
+            'nomor_rt': updated['nomor_rt'],
+            'nomor_rw': updated['nomor_rw'],
+            'role': updated['role'],
+            'tanda_tangan_digital': updated['tanda_tangan_url']
+        },
+        'error': None
+    }), 200
+
+@auth_bp.route('/signature', methods=['POST'])
+@jwt_required
+def update_signature():
+    """API-005: Memperbarui tanda tangan digital pengguna"""
+    user = request.current_user
+    sig_file = request.files.get('tanda_tangan')
+
+    if not sig_file or not sig_file.filename:
+        data = request.get_json(silent=True) or {}
+        sig_key = data.get('tanda_tangan_url') or data.get('signature_key')
+        if not sig_key:
+            return jsonify({
+                'success': False,
+                'message': 'File atau data tanda tangan wajib disertakan',
+                'data': None,
+                'error': 'MISSING_SIGNATURE'
+            }), 400
+    else:
+        try:
+            sig_key = store_upload(sig_file, 'signatures')
+        except ValueError as err:
+            return jsonify({
+                'success': False,
+                'message': str(err),
+                'data': None,
+                'error': 'INVALID_FILE'
+            }), 400
+
+    updated = update_user_signature(user['role'], user['user_id'], sig_key)
+    return jsonify({
+        'success': True,
+        'message': 'Tanda tangan digital berhasil diperbarui',
+        'data': {
+            'tanda_tangan_digital': sig_key
         },
         'error': None
     }), 200

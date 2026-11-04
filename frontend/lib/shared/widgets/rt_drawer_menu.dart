@@ -187,7 +187,10 @@ class RTDrawerMenu extends ConsumerWidget {
                   _buildDrawerMenuTile(
                     icon: Icons.person_outline_rounded,
                     title: 'Profil Saya',
-                    onTap: () => Navigator.pop(context),
+                    onTap: () {
+                      Navigator.pop(context);
+                      context.push(RouteNames.profile);
+                    },
                   ),
                   _buildDrawerMenuTile(
                     icon: Icons.assignment_outlined,

@@ -46,6 +46,10 @@ class AuthController extends StateNotifier<AuthState> {
     checkAuthStatus();
   }
 
+  void updateCurrentUser(UserEntity user) {
+    state = state.copyWith(user: user);
+  }
+
   Future<void> checkAuthStatus() async {
     state = state.copyWith(isLoading: true);
     final isAuth = await _repository.isAuthenticated();

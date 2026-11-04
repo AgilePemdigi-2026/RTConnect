@@ -1,9 +1,11 @@
 /// REST API Endpoints mapping to api.md specifications
 class ApiEndpoints {
-  // Auth
+  // Auth & Profile
   static const String register = '/auth/register'; // API-001
   static const String login = '/auth/login'; // API-002
   static const String me = '/auth/me'; // API-003
+  static const String updateProfile = '/auth/me'; // API-004
+  static const String updateSignature = '/auth/signature'; // API-005
 
   // Letters
   static const String letterTypes = '/letters/types'; // API-004

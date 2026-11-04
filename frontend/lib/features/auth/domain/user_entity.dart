@@ -28,6 +28,28 @@ class UserEntity {
   bool get isRT => role.toLowerCase() == 'rt';
   bool get isWarga => role.toLowerCase() == 'warga';
 
+  UserEntity copyWith({
+    int? userId,
+    String? nik,
+    String? name,
+    String? email,
+    String? role,
+    String? phoneNumber,
+    String? address,
+    String? signatureUrl,
+  }) {
+    return UserEntity(
+      userId: userId ?? this.userId,
+      nik: nik ?? this.nik,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      role: role ?? this.role,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+      address: address ?? this.address,
+      signatureUrl: signatureUrl ?? this.signatureUrl,
+    );
+  }
+
   factory UserEntity.fromJson(Map<String, dynamic> json) {
     return UserEntity(
       userId: json['user_id'] as int? ?? json['id'] as int? ?? 0,

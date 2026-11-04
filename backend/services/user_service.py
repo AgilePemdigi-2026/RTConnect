@@ -59,3 +59,33 @@ def nik_or_email_taken(nik: str, email: str):
 def first_rt_id():
     row = query_one("SELECT rt_id FROM rt WHERE is_active ORDER BY rt_id LIMIT 1")
     return row['rt_id'] if row else None
+
+
+def update_user_profile(role: str, user_id: int, nama: str, no_telp: str, alamat: str = None, email: str = None):
+    """Perbarui data profil pengguna."""
+    if role not in _SELECTS:
+        return None
+    if role == 'warga':
+        query_one(
+            "UPDATE warga SET nama = %s, no_telp = %s, alamat = %s, email = COALESCE(%s, email) WHERE warga_id = %s RETURNING warga_id",
+            (nama, no_telp, alamat, email, user_id)
+        )
+    else:
+        query_one(
+            "UPDATE rt SET nama = %s, no_telp = %s, email = COALESCE(%s, email) WHERE rt_id = %s RETURNING rt_id",
+            (nama, no_telp, email, user_id)
+        )
+    return get_user(role, user_id)
+
+
+def update_user_signature(role: str, user_id: int, signature_url: str):
+    """Perbarui tanda tangan digital pengguna."""
+    if role not in _SELECTS:
+        return None
+    table = 'rt' if role == 'rt' else 'warga'
+    id_column = 'rt_id' if role == 'rt' else 'warga_id'
+    query_one(
+        f"UPDATE {table} SET tanda_tangan_digital = %s WHERE {id_column} = %s RETURNING {id_column}",
+        (signature_url, user_id)
+    )
+    return get_user(role, user_id)
