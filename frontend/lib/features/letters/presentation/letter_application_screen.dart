@@ -531,7 +531,7 @@ class _LetterApplicationScreenState
         const SizedBox(height: AppSpacing.md),
         RTTextField(
           label: 'Tempat Lahir',
-          hint: 'Contoh: Sidoarjo',
+          hint: 'Contoh: Surabaya',
           controller: _tempatLahirController,
           isRequired: true,
           validator: (v) => (v == null || v.trim().isEmpty) ? 'Tempat lahir wajib diisi' : null,
@@ -586,7 +586,7 @@ class _LetterApplicationScreenState
         const SizedBox(height: AppSpacing.md),
         RTTextField(
           label: 'Tujuan',
-          hint: 'Contoh: Kantor Kelurahan Tawangsari / Polsek Taman',
+          hint: 'Contoh: Kantor Kelurahan Kedurus / Polsek Karang Pilang',
           controller: _tujuanController,
           isRequired: true,
           helperText: 'Instansi atau pihak yang dituju surat ini.',

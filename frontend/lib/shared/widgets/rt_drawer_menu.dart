@@ -20,7 +20,7 @@ class RTDrawerMenu extends ConsumerWidget {
     this.userName,
     this.userEmail,
     this.userRole,
-    this.neighborhood = 'RT 04 / RW 07, Tawangsari',
+    this.neighborhood = 'RT 04 / RW 09, Kedurus',
     this.onLogout,
   });
 
@@ -172,7 +172,7 @@ class RTDrawerMenu extends ConsumerWidget {
                         borderRadius: BorderRadius.circular(9999.0),
                       ),
                       child: Text(
-                        neighborhood ?? 'RT 04 / RW 07, Tawangsari',
+                        neighborhood ?? 'RT 04 / RW 09, Kedurus',
                         style: AppTypography.labelSmall.copyWith(
                           fontSize: 11.0,
                           color: AppColors.textMuted,

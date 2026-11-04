@@ -31,7 +31,7 @@ def run_api_tests():
         'email': rand_email,
         'password': 'Password123!',
         'nomor_telepon': '081299887766',
-        'alamat': 'Griya Taman Asri Blok E-20'
+        'alamat': 'Gunungsari Indah Blok E-20'
     })
     assert res_reg.status_code == 201, f"Register gagal: {res_reg.data}"
     print(f"[PASS] 2. Registrasi Warga Baru (API-001): OK -> User ID: {res_reg.get_json()['data']['user_id']}")
@@ -74,9 +74,9 @@ def run_api_tests():
     # 7. Warga Mengajukan Surat Domisili (Draf Template) (API-005)
     PEMOHON = {
         'pekerjaan': 'Karyawan Swasta', 'jenis_kelamin': 'Laki-laki',
-        'tempat_lahir': 'Sidoarjo', 'tanggal_lahir': '1995-08-17', 'agama': 'Islam',
+        'tempat_lahir': 'Surabaya', 'tanggal_lahir': '1995-08-17', 'agama': 'Islam',
         'status_kawin': 'Belum Kawin', 'kewarganegaraan': 'WNI',
-        'nomor_kk': '3515080101950001', 'tujuan': 'Kantor Kelurahan Tawangsari',
+        'nomor_kk': '3578080101950001', 'tujuan': 'Kantor Kelurahan Kedurus',
     }
 
     # 7a. Tanpa data pemohon lengkap harus ditolak
@@ -94,7 +94,7 @@ def run_api_tests():
 
     res_apply = client.post('/api/v1/letters/apply', headers=warga_headers, json={
         'jenis_surat_id': dom_type['jenis_surat_id'],
-        'keperluan': 'Persyaratan pembukaan rekening bank syariah cabang Sidoarjo',
+        'keperluan': 'Persyaratan pembukaan rekening bank syariah cabang Surabaya',
         'metode_tanda_tangan': 'digital',
         **PEMOHON,
     })
@@ -105,7 +105,7 @@ def run_api_tests():
     assert apply_data['status'] == 'diajukan'
     assert 'draf_ai' in apply_data
     assert 'Karyawan Swasta' in apply_data['draf_ai'] and '17 Agustus 1995' in apply_data['draf_ai']
-    assert 'Kelurahan Tawangsari' in apply_data['draf_ai']
+    assert 'Kelurahan Kedurus' in apply_data['draf_ai'] and 'Kota Surabaya' in apply_data['draf_ai']
     print(f"[PASS] 7. Pengajuan Surat Warga (API-005): OK -> ID #{pengajuan_id} ({nomor_pengajuan}), draf template dibuat")
 
     # 7b. Data pengajuan terakhir untuk isi otomatis form
@@ -113,7 +113,7 @@ def run_api_tests():
     assert res_last.status_code == 200
     last = res_last.get_json()['data']
     assert last['pekerjaan'] == 'Karyawan Swasta' and last['tanggal_lahir'] == '1995-08-17'
-    assert last['tujuan'] == 'Kantor Kelurahan Tawangsari'
+    assert last['tujuan'] == 'Kantor Kelurahan Kedurus'
     print("[PASS] 7b. Isi Otomatis Data Pemohon: OK -> data pengajuan terakhir dikembalikan")
 
     # 8. Riwayat Pengajuan Milik Warga (API-006)
@@ -192,7 +192,7 @@ def run_api_tests():
 
     # Warga resubmit perbaikan
     res_resubmit = client.put(f'/api/v1/letters/{rev_id}/resubmit', headers=warga_headers, json={
-        'keperluan': 'Surat keterangan domisili untuk pendaftaran kerja di Sidoarjo',
+        'keperluan': 'Surat keterangan domisili untuk pendaftaran kerja di Surabaya',
         'pekerjaan': 'Wiraswasta'
     })
     assert res_resubmit.status_code == 200

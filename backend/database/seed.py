@@ -154,7 +154,8 @@ def seed_database(include_demo_users=None):
             f'1. Surat pengantar {Config.RT_AREA} berlaku selama 30 hari kalender sejak tanggal pengesahan.\n'
             '2. Untuk pembuatan surat domisili, warga wajib menyiapkan KTP asli dan bukti tempat tinggal.\n'
             '3. Warga yang mengurus surat keterangan usaha (SKU) wajib melampirkan foto tempat usaha fisik.\n'
-            '4. Pelayanan surat tanda tangan basah dapat diambil di rumah Ketua RT pada jam 18.30 - 21.00 WIB setiap hari kerja.'
+            f'4. Pelayanan surat tanda tangan basah dapat diambil di rumah Ketua RT ({Config.RT_OFFICE_ADDRESS}) '
+            'pada jam 18.30 - 21.00 WIB setiap hari kerja.'
         ),
         (
             f'Ketentuan Iuran Lingkungan & Fasilitas Umum {Config.RT_AREA}',

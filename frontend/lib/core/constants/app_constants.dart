@@ -5,7 +5,7 @@ class AppConstants {
   static const String appName = 'RTConnect';
   static const String rtArea = String.fromEnvironment(
     'RT_AREA',
-    defaultValue: 'RT 032 / RW 08 Griya Taman Asri',
+    defaultValue: 'RT 04 / RW 09 Gunungsari Indah',
   );
   static String get appTagline => 'Aplikasi Administrasi Warga $rtArea';
 

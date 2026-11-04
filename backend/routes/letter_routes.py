@@ -599,7 +599,7 @@ def confirm_physical(id: int):
         # Notifikasi Warga
         add_notification(
             'warga', app_data['warga_id'], 'surat_siap_diambil', 'Surat Siap Diambil',
-            "Surat fisik bertanda tangan basah telah selesai dan siap diambil di kediaman Pak RT.",
+            f"Surat fisik bertanda tangan basah telah selesai dan siap diambil di rumah Ketua RT ({Config.RT_OFFICE_ADDRESS}).",
             f"/letters/{id}", pengajuan_id=id, cur=cur
         )
 
