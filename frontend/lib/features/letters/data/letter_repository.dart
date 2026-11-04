@@ -18,13 +18,17 @@ class LetterRepository {
     required String keperluan,
     required String metodeTandaTangan,
     String? lampiranPath,
+    Map<String, String> dataPemohon = const {},
   }) async {
+    // dataPemohon: pekerjaan, jenis_kelamin, tempat_lahir, tanggal_lahir (YYYY-MM-DD),
+    // agama, status_kawin, kewarganegaraan, nomor_kk, tujuan, keterangan_lain
     dynamic payload;
     if (lampiranPath != null && lampiranPath.isNotEmpty) {
       payload = FormData.fromMap({
         'jenis_surat_id': jenisSuratId,
         'keperluan': keperluan,
         'metode_tanda_tangan': metodeTandaTangan,
+        ...dataPemohon,
         'lampiran': await MultipartFile.fromFile(lampiranPath),
       });
     } else {
@@ -32,6 +36,7 @@ class LetterRepository {
         'jenis_surat_id': jenisSuratId,
         'keperluan': keperluan,
         'metode_tanda_tangan': metodeTandaTangan,
+        ...dataPemohon,
       };
     }
 
@@ -40,6 +45,13 @@ class LetterRepository {
       data: payload,
     );
     return Map<String, dynamic>.from(response.data!['data'] as Map);
+  }
+
+  /// Data pemohon dari pengajuan terakhir (null bila belum pernah mengajukan).
+  Future<Map<String, dynamic>?> getMyLastApplicantData() async {
+    final response = await _apiClient.dio.get<Map<String, dynamic>>(ApiEndpoints.myLastApplicantData);
+    final data = response.data!['data'];
+    return data == null ? null : Map<String, dynamic>.from(data as Map);
   }
 
   Future<List<Map<String, dynamic>>> getMyApplications() async {

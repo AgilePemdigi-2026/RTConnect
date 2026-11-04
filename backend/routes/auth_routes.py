@@ -1,11 +1,11 @@
 import bcrypt
 import re
 from flask import Blueprint, request, jsonify
-from pymysql.err import IntegrityError
 from config import Config
-from database.db import query_one, execute
+from database.db import UniqueViolation, execute_returning
 from middleware.auth_middleware import generate_token, jwt_required
 from services.file_storage import store_upload
+from services.user_service import find_by_identity, nik_or_email_taken
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/v1/auth')
 
@@ -74,12 +74,11 @@ def register():
         }), 400
 
     # Cek duplikasi NIK atau Email
-    existing = query_one("SELECT user_id, nik, email FROM users WHERE nik = %s OR email = %s", (nik, email))
-    if existing:
-        field = "NIK" if existing['nik'] == nik else "Email"
+    duplicate_field = nik_or_email_taken(nik, email)
+    if duplicate_field:
         return jsonify({
             'success': False,
-            'message': f'{field} tersebut sudah terdaftar dalam sistem RTConnect',
+            'message': f'{duplicate_field} tersebut sudah terdaftar dalam sistem RTConnect',
             'data': None,
             'error': 'DUPLICATE_ENTRY'
         }), 400
@@ -99,13 +98,15 @@ def register():
 
     pw_hash = hash_password(password)
     try:
-        user_id = execute(
-            """INSERT INTO users
-               (nik, nama_lengkap, email, password_hash, nomor_telepon, alamat, nomor_rt, nomor_rw, role, tanda_tangan_url)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'warga', %s)""",
+        row = execute_returning(
+            """INSERT INTO warga
+               (nik, nama, email, password_hash, no_telp, alamat, nomor_rt, nomor_rw, tanda_tangan_digital)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+               RETURNING warga_id""",
             (nik, nama_lengkap, email, pw_hash, nomor_telepon, alamat, Config.RT_NUMBER, Config.RW_NUMBER, signature_key)
         )
-    except IntegrityError:
+        user_id = row['warga_id']
+    except UniqueViolation:
         return jsonify({
             'success': False,
             'message': 'NIK atau email tersebut sudah terdaftar dalam sistem RTConnect',
@@ -142,10 +143,7 @@ def login():
             'error': 'MISSING_CREDENTIALS'
         }), 400
 
-    user = query_one(
-        "SELECT user_id, nik, nama_lengkap, email, password_hash, nomor_telepon, alamat, nomor_rt, nomor_rw, role, is_active FROM users WHERE email = %s OR nik = %s",
-        (identity, identity)
-    )
+    user = find_by_identity(identity)
 
     if not user or not check_password(password, user['password_hash']):
         return jsonify({

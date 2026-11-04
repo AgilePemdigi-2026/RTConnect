@@ -1,239 +1,154 @@
-import os
+"""PDF Surat Pengantar / Keterangan RT, meniru blangko surat pengantar RT.
+
+Urutan & tata letak mengikuti blangko fisik: "RT : .. RW : ..", "KELURAHAN : ..",
+judul bergaris bawah + "No.", daftar isian bergaris titik-titik, "Demikian agar
+mendapat bantuan seperlunya", tanda tangan pemohon (kiri) & Ketua RT (kanan),
+lalu "No. ....", "Mengetahui : Ketua RW" di tengah bawah.
+"""
+
 import datetime
 import io
+import os
 from xml.sax.saxutils import escape
-from reportlab.lib.pagesizes import A4
+
 from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, HRFlowable
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
 from config import Config
+from services.ai_draft_service import build_letter_fields
+from services.applicant_data import format_tanggal
 from services.file_storage import read_bytes
 
+INK = colors.HexColor('#111111')
+DOTS = (1, 2.2)  # pola garis titik-titik
 
-def _user_paragraph(value, style):
-    return Paragraph(escape(str(value or '-')).replace('\n', '<br/>'), style)
+# (label persis seperti blangko, kunci field). Label pendek ditulis berjarak seperti aslinya.
+FIELD_ROWS = (
+    ('Nama Lengkap', 'nama'),
+    ('A l a m a t', 'alamat'),
+    ('Pekerjaan', 'pekerjaan'),
+    ('Jenis Kelamin', 'jenis_kelamin'),
+    ('Tempat / tgl. lahir', 'tempat_tgl_lahir'),
+    ('A g a m a', 'agama'),
+    ('Kawin / tidak kawin', 'status_kawin'),
+    ('Kewarganegaraan', 'kewarganegaraan'),
+    ('Nomor KK / KTP', 'kk_ktp'),
+    ('T u j u a n', 'tujuan'),
+    ('K e p e r l u a n', 'keperluan'),
+    ('', None),  # baris titik-titik kedua untuk keperluan (seperti blangko)
+    ('Keterangan lain-lain', 'keterangan_lain'),
+)
+
+
+def _p(text, style):
+    return Paragraph(escape(str(text)).replace('\n', '<br/>'), style)
+
+
+def _signature_image(rt_user):
+    key = rt_user.get('tanda_tangan_url')
+    if not key:
+        return None
+    try:
+        return Image(io.BytesIO(read_bytes(key)), width=120, height=42)
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+
 
 def generate_official_letter_pdf_bytes(
     application: dict,
     resident: dict,
     letter_type: dict,
     official_letter_number: str,
-    rt_user: dict
-) -> bytes:
-    """
-    Menghasilkan bytes PDF resmi langsung di memori dengan kop komunitas,
-    data pemohon, isi draf pengantar, dan tanda tangan digital (UC-09).
-    """
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=54,
-        rightMargin=54,
-        topMargin=40,
-        bottomMargin=40
-    )
+    rt_user: dict,
+    output_filename: str = None,
+) -> str:
+    os.makedirs(Config.LETTERS_FOLDER, exist_ok=True)
+    if not output_filename:
+        safe_num = official_letter_number.replace('/', '_').replace('\\', '_')
+        output_filename = f'Surat_{safe_num}.pdf'
+    pdf_path = os.path.join(Config.LETTERS_FOLDER, output_filename)
 
-    styles = getSampleStyleSheet()
+    fields = build_letter_fields(resident, application.get('keperluan'), application)
+    fields['tempat_tgl_lahir'] = f"{fields['tempat_lahir']}, {fields['tanggal_lahir']}"
+    fields['kk_ktp'] = f"{fields['nomor_kk']} / {fields['nik']}"
+    if fields['keterangan_lain'] == '-':
+        fields['keterangan_lain'] = ''
 
-    # Kustomisasi styles
-    header_title_style = ParagraphStyle(
-        'HeaderTitle',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=13,
-        leading=16,
-        alignment=1, # Center
-        textColor=colors.HexColor('#0F172A')
-    )
-    header_subtitle_style = ParagraphStyle(
-        'HeaderSubtitle',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=10,
-        leading=13,
-        alignment=1,
-        textColor=colors.HexColor('#334155')
-    )
-    doc_title_style = ParagraphStyle(
-        'DocTitle',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=12,
-        leading=15,
-        alignment=1,
-        spaceAfter=3,
-        textColor=colors.HexColor('#0F172A')
-    )
-    doc_no_style = ParagraphStyle(
-        'DocNo',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=10,
-        leading=13,
-        alignment=1,
-        spaceAfter=15,
-        textColor=colors.HexColor('#475569')
-    )
-    body_style = ParagraphStyle(
-        'BodyTextCustom',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=10,
-        leading=15,
-        alignment=4, # Justify
-        spaceAfter=10,
-        textColor=colors.HexColor('#1E293B')
-    )
-    table_label_style = ParagraphStyle(
-        'TableLabel',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=10,
-        leading=14,
-        textColor=colors.HexColor('#334155')
-    )
-    table_value_style = ParagraphStyle(
-        'TableValue',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=10,
-        leading=14,
-        textColor=colors.HexColor('#1E293B')
-    )
-    sign_style = ParagraphStyle(
-        'SignStyle',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=10,
-        leading=14,
-        alignment=1,
-        textColor=colors.HexColor('#1E293B')
-    )
-    sign_bold_style = ParagraphStyle(
-        'SignBoldStyle',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=10,
-        leading=14,
-        alignment=1,
-        textColor=colors.HexColor('#0F172A')
-    )
+    base = getSampleStyleSheet()['Normal']
+    body = ParagraphStyle('Body', parent=base, fontName='Times-Roman', fontSize=12.5, leading=16, textColor=INK)
+    head = ParagraphStyle('Head', parent=body, fontName='Times-Bold', fontSize=13.5, leading=19)
+    title = ParagraphStyle('Title', parent=head, fontSize=17, leading=21, alignment=1)
+    number = ParagraphStyle('Number', parent=head, fontSize=14, alignment=1)
+    center = ParagraphStyle('Center', parent=body, alignment=1)
 
+    doc = SimpleDocTemplate(pdf_path, pagesize=A4, leftMargin=64, rightMargin=58,
+                            topMargin=50, bottomMargin=40,
+                            title=f'Surat Pengantar {official_letter_number}')
+    width = A4[0] - 64 - 58 - 12  # lebar isi (dikurangi padding frame)
     story = []
 
-    # 1. KOP SURAT RT
-    story.append(Paragraph(escape(Config.RT_AREA.upper()), header_title_style))
-    story.append(Paragraph(escape(Config.RT_LOCATION_LINE_2), header_title_style))
-    story.append(Paragraph(escape(Config.RT_LOCATION_LINE_3), header_subtitle_style))
-    story.append(Spacer(1, 8))
-    
-    # Garis Pembatas Kop Surat
-    story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#0F172A'), spaceBefore=2, spaceAfter=2))
-    story.append(HRFlowable(width="100%", thickness=0.8, color=colors.HexColor('#0F172A'), spaceBefore=1, spaceAfter=14))
-
-    # 2. JUDUL DAN NOMOR SURAT
-    nama_surat_upper = letter_type.get('nama_surat', 'SURAT KETERANGAN').upper()
-    story.append(Paragraph(f"<u>{escape(nama_surat_upper)}</u>", doc_title_style))
-    story.append(Paragraph(f"Nomor: {escape(str(official_letter_number))}", doc_no_style))
-
-    # 3. PARAGRAF PEMBUKA
-    pembuka = (
-        f"Yang bertanda tangan di bawah ini Ketua {Config.RT_AREA}, "
-        f"{Config.RT_LOCATION_LINE_3}, dengan ini menerangkan bahwa:"
-    )
-    story.append(Paragraph(escape(pembuka), body_style))
-    story.append(Spacer(1, 6))
-
-    # 4. TABEL BIODATA PEMOHON
-    data_pemohon = [
-        [Paragraph("Nama Lengkap", table_label_style), Paragraph(":", table_label_style), _user_paragraph(resident.get('nama_lengkap'), table_value_style)],
-        [Paragraph("NIK", table_label_style), Paragraph(":", table_label_style), _user_paragraph(resident.get('nik'), table_value_style)],
-        [Paragraph("Nomor Telepon", table_label_style), Paragraph(":", table_label_style), _user_paragraph(resident.get('nomor_telepon'), table_value_style)],
-        [Paragraph("Alamat Tinggal", table_label_style), Paragraph(":", table_label_style), _user_paragraph(f"{resident.get('alamat', '-')}, RT {resident.get('nomor_rt', '032')}/RW {resident.get('nomor_rw', '08')}", table_value_style)],
-        [Paragraph("Keperluan", table_label_style), Paragraph(":", table_label_style), _user_paragraph(application.get('keperluan'), table_value_style)]
-    ]
-
-    t = Table(data_pemohon, colWidths=[120, 15, 350])
-    t.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-        ('TOPPADDING', (0,0), (-1,-1), 2),
-    ]))
-    story.append(t)
-    story.append(Spacer(1, 12))
-
-    # 5. PARAGRAF ISI / DRAF KETERANGAN
-    draf_isi = application.get('draf_ai_konten') or (
-        f"Orang tersebut di atas adalah benar-benar warga yang bertempat tinggal di lingkungan {Config.RT_AREA} "
-        "dan berkelakuan baik dalam kehidupan bermasyarakat."
-    )
-    
-    # Ambil paragraf penjelas jika draf mengandung baris-baris
-    lines = [l.strip() for l in draf_isi.split('\n') if l.strip()]
-    if lines:
-        for line in lines:
-            if not line.startswith("Nama Lengkap") and not line.startswith("NIK") and not line.startswith("Alamat Tinggal"):
-                story.append(_user_paragraph(line, body_style))
-    else:
-        story.append(_user_paragraph(draf_isi, body_style))
-
-    story.append(Spacer(1, 8))
-
-    # 6. PARAGRAF PENUTUP
-    penutup = (
-        "Demikian surat keterangan/pengantar ini kami berikan dengan sebenarnya "
-        "agar dapat dipergunakan sebagaimana mestinya oleh pihak yang berkepentingan. "
-        "Surat ini berlaku selama 30 (tiga puluh) hari kalender sejak tanggal diterbitkan."
-    )
-    story.append(Paragraph(penutup, body_style))
+    # 1. RT : ...  RW : ...  /  KELURAHAN : ...
+    rt, rw = fields['rt'], fields['rw']
+    story.append(Paragraph(
+        f'RT : {escape(rt)}' + '&nbsp;' * 22 + f'RW : {escape(rw)}', head))
+    story.append(Paragraph(f'<u>KELURAHAN : {escape(Config.RT_KELURAHAN.upper())}</u>', head))
     story.append(Spacer(1, 16))
 
-    # 7. BLOK TANDA TANGAN KETUA RT DENGAN TEMPELAN GAMBAR TANDA TANGAN DIGITAL (UC-09)
-    today_formatted = datetime.date.today().strftime('%d %B %Y')
-    rt_name = rt_user.get('nama_lengkap', Config.RT_NAME)
+    # 2. Judul + nomor
+    story.append(Paragraph('<u>SURAT PENGANTAR / KETERANGAN</u>', title))
+    story.append(Paragraph(f'No. {escape(str(official_letter_number))}', number))
+    story.append(Spacer(1, 12))
 
-    # Cek lokasi file tanda tangan digital RT
-    signature_key = rt_user.get('tanda_tangan_url')
-
-    # Komponen tanda tangan
-    sign_flowables = [
-        Paragraph(f"{escape(Config.RT_SIGNING_LOCATION)}, {today_formatted}", sign_style),
-        Paragraph(f"Ketua RT {escape(Config.RT_NUMBER)} RW {escape(Config.RW_NUMBER)}", sign_bold_style),
-        Spacer(1, 4)
-    ]
-
-    if signature_key:
-        try:
-            signature_bytes = read_bytes(signature_key)
-        except FileNotFoundError:
-            signature_bytes = None
-    else:
-        signature_bytes = None
-
-    if signature_bytes:
-        sig_img = Image(io.BytesIO(signature_bytes), width=140, height=48)
-        sign_flowables.append(sig_img)
-    else:
-        sign_flowables.append(Spacer(1, 48))
-
-    sign_flowables.append(Spacer(1, 4))
-    sign_flowables.append(Paragraph(f"<b><u>( {escape(str(rt_name))} )</u></b>", sign_bold_style))
-    sign_flowables.append(Paragraph("Pengesahan Ketua RT melalui PIN; tanda tangan berupa gambar", ParagraphStyle('SignSub', parent=sign_style, fontSize=8, textColor=colors.HexColor('#64748B'))))
-
-    # Letakkan tanda tangan di sisi kanan dokumen
-    sign_table_data = [
-        ["", sign_flowables]
-    ]
-    sign_table = Table(sign_table_data, colWidths=[280, 200])
-    sign_table.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('ALIGN', (1,0), (1,-1), 'CENTER'),
+    # 3. Isian bergaris titik-titik
+    story.append(Paragraph('&nbsp;&nbsp;&nbsp;Yang bertanda tangan di bawah ini, menerangkan :', body))
+    story.append(Spacer(1, 2))
+    rows = []
+    for label, key in FIELD_ROWS:
+        value = fields.get(key, '') if key else ''
+        cell = _p(value, body) if value else Paragraph('&nbsp;', body)  # baris kosong tetap setinggi baris lain
+        rows.append([_p(label, body), Paragraph(':' if label else '&nbsp;', body), cell])
+    label_w, colon_w = 170, 22
+    table = Table(rows, colWidths=[label_w, colon_w, width - label_w - colon_w])
+    table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
+        ('LEFTPADDING', (0, 0), (0, -1), 46),
+        ('LEFTPADDING', (1, 0), (1, -1), 0),
+        ('RIGHTPADDING', (1, 0), (1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 2.5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+        ('LINEBELOW', (2, 0), (2, -1), 0.7, INK, None, DOTS),
     ]))
+    story.append(table)
+    story.append(Spacer(1, 4))
+    story.append(Paragraph('Demikian agar mendapat bantuan seperlunya', ParagraphStyle(
+        'Closing', parent=body, leftIndent=46)))
+    story.append(Spacer(1, 14))
 
-    story.append(sign_table)
+    # 4. Tanda tangan pemohon (kiri) & Ketua RT (kanan)
+    today = format_tanggal(datetime.date.today())
+    rt_name = Config.RT_CHAIR_NAME or rt_user.get('nama_lengkap') or Config.RT_NAME
+    signature = _signature_image(rt_user) or Spacer(1, 42)
+    left = [Paragraph('Tanda tangan', center), Paragraph('Yang bersangkutan', center),
+            Spacer(1, 50), Paragraph(f'( {escape(fields["nama"])} )', center)]
+    right = [Paragraph(f'{escape(Config.RT_SIGNING_LOCATION)}, {today}', center),
+             Paragraph(f'Ketua RT. {escape(rt)}', center), Spacer(1, 4), signature, Spacer(1, 4),
+             Paragraph(f'( {escape(rt_name)} )', center)]
+    half = width / 2
+    signs = Table([[left, right]], colWidths=[half, half])
+    signs.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+    story.append(signs)
 
-    # Build PDF
+    # 5. No. register RW + Mengetahui Ketua RW (tengah)
+    story.append(Paragraph('No. ' + '.' * 44, center))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph('Mengetahui :', center))
+    story.append(Paragraph(f'Ketua RW. {escape(rw)}', center))
+    story.append(Spacer(1, 52))
+    rw_name = Config.RW_CHAIR_NAME or '.' * 40
+    story.append(Paragraph(f'( {escape(rw_name)} )', center))
+
     doc.build(story)
     return buffer.getvalue()
 

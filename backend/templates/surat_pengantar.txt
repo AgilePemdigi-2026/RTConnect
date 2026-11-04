@@ -1,0 +1,16 @@
+Yang bertanda tangan di bawah ini, Ketua RT {{rt}} RW {{rw}} Perumahan {{perumahan}}, Kelurahan {{kelurahan}}, Kecamatan {{kecamatan}}, {{kabupaten}}, menerangkan:
+
+Nama Lengkap         : {{nama}}
+Alamat               : {{alamat}}
+Pekerjaan            : {{pekerjaan}}
+Jenis Kelamin        : {{jenis_kelamin}}
+Tempat / Tgl. Lahir  : {{tempat_lahir}}, {{tanggal_lahir}}
+Agama                : {{agama}}
+Kawin / Tidak Kawin  : {{status_kawin}}
+Kewarganegaraan      : {{kewarganegaraan}}
+Nomor KK / KTP       : {{nomor_kk}} / {{nik}}
+Tujuan               : {{tujuan}}
+Keperluan            : {{keperluan}}
+Keterangan Lain-lain : {{keterangan_lain}}
+
+Demikian agar mendapat bantuan seperlunya.

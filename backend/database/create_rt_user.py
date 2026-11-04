@@ -8,7 +8,7 @@ import bcrypt
 from werkzeug.datastructures import FileStorage
 
 from config import Config
-from database.db import execute, query_one
+from database.db import close_pool, execute_returning, query_one
 from services.file_storage import store_upload
 
 
@@ -33,9 +33,10 @@ def main():
         raise SystemExit('Passwords do not match.')
     if Config.IS_PRODUCTION and not signature_path:
         raise SystemExit('Production RT accounts must have a signature image to issue signed PDFs.')
-    if query_one("SELECT user_id FROM users WHERE role = 'rt' LIMIT 1"):
+    if query_one("SELECT rt_id FROM rt LIMIT 1"):
         raise SystemExit('An RT account already exists. Promote or update an account through a controlled admin process.')
-    if query_one('SELECT user_id FROM users WHERE nik = %s OR email = %s', (nik, email)):
+    if (query_one('SELECT nik FROM rt WHERE nik = %s OR lower(email) = lower(%s)', (nik, email))
+            or query_one('SELECT nik FROM warga WHERE nik = %s OR lower(email) = lower(%s)', (nik, email))):
         raise SystemExit('That NIK or email is already registered.')
 
     signature_key = None
@@ -47,14 +48,18 @@ def main():
             )
 
     password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    execute(
-        """INSERT INTO users
-           (nik, nama_lengkap, email, password_hash, nomor_telepon, alamat, nomor_rt, nomor_rw, role, tanda_tangan_url)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'rt', %s)""",
-        (nik, name, email, password_hash, phone, address, Config.RT_NUMBER, Config.RW_NUMBER, signature_key),
+    execute_returning(
+        """INSERT INTO rt
+           (nik, nama, jabatan, email, password_hash, no_telp, nomor_rt, nomor_rw, tanda_tangan_digital)
+           VALUES (%s, %s, 'Ketua RT', %s, %s, %s, %s, %s, %s)
+           RETURNING rt_id""",
+        (nik, name, email, password_hash, phone, Config.RT_NUMBER, Config.RW_NUMBER, signature_key),
     )
     print(f'Created RT account for {name}.')
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    finally:
+        close_pool()

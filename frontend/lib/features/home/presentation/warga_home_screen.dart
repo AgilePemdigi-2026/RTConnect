@@ -200,7 +200,7 @@ class WargaHomeScreen extends ConsumerWidget {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        '${AppConstants.rtArea} • Griya Taman Asri',
+                        '${AppConstants.rtArea} • Kedurus, Surabaya',
                         style: AppTypography.caption.copyWith(
                           color: AppColors.primary,
                           fontWeight: FontWeight.w600,
