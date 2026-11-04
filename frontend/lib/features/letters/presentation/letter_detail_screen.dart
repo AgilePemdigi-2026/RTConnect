@@ -796,8 +796,8 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
     String tanggal(DateTime? d) => d == null ? '' : '${d.day} ${bulan[d.month - 1]} ${d.year}';
 
     final isDone = status == 'selesai';
-    final rt = v('nomor_rt', '032');
-    final rw = v('nomor_rw', '08');
+    final rt = v('nomor_rt', '04');
+    final rw = v('nomor_rw', '09');
     final nama = v('nama_lengkap', v('nama_warga'));
     final tglLahir = tanggal(DateTime.tryParse(v('tanggal_lahir')));
     final tempatTgl = [v('tempat_lahir'), tglLahir].where((e) => e.isNotEmpty).join(', ');
@@ -824,7 +824,7 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
           // RT : ..  RW : ..  /  KELURAHAN : ..
           Text('RT : $rt          RW : $rw', style: bold.copyWith(fontSize: 12.5)),
           Text(
-            'KELURAHAN : ${v('kelurahan', 'Tawangsari').toUpperCase()}',
+            'KELURAHAN : ${v('kelurahan', 'Kedurus').toUpperCase()}',
             style: bold.copyWith(fontSize: 12.5, decoration: TextDecoration.underline),
           ),
           const SizedBox(height: 12),
@@ -885,7 +885,7 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
               Expanded(
                 child: Column(
                   children: [
-                    Text('${v('kota_ttd', 'Sidoarjo')}, $tanggalSurat',
+                    Text('${v('kota_ttd', 'Surabaya')}, $tanggalSurat',
                         style: serif, textAlign: TextAlign.center),
                     Text('Ketua RT. $rt', style: serif),
                     SizedBox(

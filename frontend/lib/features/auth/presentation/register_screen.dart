@@ -199,7 +199,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       // 3. Alamat Lengkap (Figma #69:4057)
                       RTTextField(
                         label: 'Alamat Lengkap',
-                        hint: 'Contoh: Griya Taman Asri Blok B No. 12',
+                        hint: 'Contoh: Gunungsari Indah Blok B No. 12',
                         isRequired: true,
                         controller: _alamatController,
                         maxLines: 2,
