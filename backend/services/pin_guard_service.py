@@ -40,6 +40,15 @@ def _pin_matches(pin: str) -> bool:
         return False
 
 
+def reset_pin_attempts(rt_id: int) -> None:
+    """Reset percobaan gagal dan hapus penguncian untuk RT tertentu."""
+    with transaction() as cursor:
+        cursor.execute(
+            "UPDATE rt_pin_attempts SET gagal_count = 0, locked_until = NULL WHERE rt_id = %s",
+            (rt_id,),
+        )
+
+
 def verify_signing_pin(rt_id: int, pin: str) -> PinCheckResult:
     with transaction() as cursor:
         cursor.execute(
@@ -59,7 +68,7 @@ def verify_signing_pin(rt_id: int, pin: str) -> PinCheckResult:
         if row['is_locked']:
             minutes = max(int(row['sisa_menit'] or 1), 1)
             return PinCheckResult(
-                False, 423, 'PIN_LOCKED',
+                False, 429, 'PIN_LOCKED',
                 f'PIN terkunci karena salah {MAX_ATTEMPTS} kali. Coba lagi dalam {minutes} menit.',
                 locked_minutes=minutes,
             )
@@ -80,7 +89,7 @@ def verify_signing_pin(rt_id: int, pin: str) -> PinCheckResult:
                 (LOCK_MINUTES, rt_id),
             )
             return PinCheckResult(
-                False, 423, 'PIN_LOCKED',
+                False, 429, 'PIN_LOCKED',
                 f'PIN salah {MAX_ATTEMPTS} kali. PIN dikunci selama {LOCK_MINUTES} menit.',
                 locked_minutes=LOCK_MINUTES,
             )
@@ -91,7 +100,7 @@ def verify_signing_pin(rt_id: int, pin: str) -> PinCheckResult:
         )
         remaining = MAX_ATTEMPTS - failed
         return PinCheckResult(
-            False, 403, 'INVALID_PIN',
+            False, 401, 'INVALID_PIN',
             f'PIN Otorisasi Ketua RT salah. Sisa percobaan: {remaining}',
             remaining_attempts=remaining,
         )

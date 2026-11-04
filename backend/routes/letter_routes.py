@@ -16,8 +16,8 @@ from services.applicant_data import (
 from services.file_storage import read_bytes, store_bytes, store_upload
 from services.letter_number_service import generate_unique_letter_number
 from services.notification_service import add_notification
-from services.pdf_service import generate_official_letter_pdf
-from services.pin_guard_service import verify_signing_pin
+from services.pdf_service import generate_official_letter_pdf, generate_official_letter_pdf_bytes
+from services.pin_guard_service import verify_signing_pin, reset_pin_attempts
 from services.user_service import first_rt_id
 
 letter_bp = Blueprint('letters', __name__, url_prefix='/api/v1/letters')

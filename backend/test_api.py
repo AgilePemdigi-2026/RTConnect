@@ -155,6 +155,7 @@ def run_api_tests():
     print(f"[PASS] 11. Keputusan RT (API-010): OK -> Pengajuan #{pengajuan_id} disetujui")
 
     # 12. Uji Brute-Force PIN RT & Otorisasi TTD Digital (API-011 / UC-09 / AUD-11)
+    reset_pin_attempts(rt_user_id)
     # Skenario A: Percobaan 1-4 dengan PIN salah (harus HTTP 401 dan counter berkurang)
     for attempt in range(1, 5):
         res_wrong = client.post(f'/api/v1/letters/{pengajuan_id}/sign-digital', headers=rt_headers, json={
