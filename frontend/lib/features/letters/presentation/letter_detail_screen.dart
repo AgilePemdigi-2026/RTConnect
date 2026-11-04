@@ -846,7 +846,7 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
           ),
           const SizedBox(height: 10),
 
-          Text('Yang bertanda tangan di bawah ini, menerangkan :', style: serif),
+          const Text('Yang bertanda tangan di bawah ini, menerangkan :', style: serif),
           const SizedBox(height: 2),
           _buildPaperFieldRow('Nama Lengkap', nama, serif),
           _buildPaperFieldRow('A l a m a t', alamat, serif),
@@ -862,8 +862,8 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
           _buildPaperFieldRow('', '', serif),
           _buildPaperFieldRow('Keterangan lain-lain', v('keterangan_lain'), serif),
           const SizedBox(height: 4),
-          Padding(
-            padding: const EdgeInsets.only(left: 12),
+          const Padding(
+            padding: EdgeInsets.only(left: 12),
             child: Text('Demikian agar mendapat bantuan seperlunya', style: serif),
           ),
           const SizedBox(height: 14),
@@ -875,8 +875,8 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
               Expanded(
                 child: Column(
                   children: [
-                    Text('Tanda tangan', style: serif),
-                    Text('Yang bersangkutan', style: serif),
+                    const Text('Tanda tangan', style: serif),
+                    const Text('Yang bersangkutan', style: serif),
                     const SizedBox(height: 50),
                     Text('( $nama )', style: serif, textAlign: TextAlign.center),
                   ],
@@ -923,9 +923,9 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
           const SizedBox(height: 4),
 
           // No. register RW + Mengetahui Ketua RW
-          Center(child: Text('No. ....................................', style: serif)),
+          const Center(child: Text('No. ....................................', style: serif)),
           const SizedBox(height: 6),
-          Center(child: Text('Mengetahui :', style: serif)),
+          const Center(child: Text('Mengetahui :', style: serif)),
           Center(child: Text('Ketua RW. $rw', style: serif)),
           const SizedBox(height: 46),
           Center(
