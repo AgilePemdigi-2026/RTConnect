@@ -7,9 +7,9 @@ import bcrypt
 from config import Config
 
 try:
-    from database.db import close_pool, execute_returning, query_one
+    from database.db import close_pool, execute, execute_returning, query_one
 except ImportError:
-    from db import close_pool, execute_returning, query_one
+    from db import close_pool, execute, execute_returning, query_one
 
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
@@ -137,27 +137,28 @@ def seed_database(include_demo_users=None):
             ('0000000000000002', 'Test Resident', 'resident@example.test', 'LocalTestOnly#2026',
              '0000000000', 'Alamat warga untuk pengujian', 'warga', 'signatures/warga_dafin_signature.png'),
         ]
-        for nik, nama, email, password, phone, alamat, role in default_users:
+        for nik, nama, email, password, phone, alamat, role, sig_key in default_users:
             table = 'rt' if role == 'rt' else 'warga'
-            existing = query_one(f"SELECT nik FROM {table} WHERE lower(email) = lower(%s) OR nik = %s", (email, nik))
+            id_col = 'rt_id' if role == 'rt' else 'warga_id'
+            existing = query_one(f"SELECT {id_col}, nik, tanda_tangan_digital FROM {table} WHERE lower(email) = lower(%s) OR nik = %s", (email, nik))
             if not existing:
                 if role == 'rt':
                     execute_returning(
-                        """INSERT INTO rt (nik, nama, jabatan, email, password_hash, no_telp, nomor_rt, nomor_rw)
-                           VALUES (%s, %s, 'Ketua RT', %s, %s, %s, %s, %s) RETURNING rt_id""",
-                        (nik, nama, email, hash_password(password), phone, Config.RT_NUMBER, Config.RW_NUMBER)
+                        """INSERT INTO rt (nik, nama, jabatan, email, password_hash, no_telp, nomor_rt, nomor_rw, tanda_tangan_digital)
+                           VALUES (%s, %s, 'Ketua RT', %s, %s, %s, %s, %s, %s) RETURNING rt_id""",
+                        (nik, nama, email, hash_password(password), phone, Config.RT_NUMBER, Config.RW_NUMBER, sig_key)
                     )
                 else:
                     execute_returning(
-                        """INSERT INTO warga (nik, nama, email, password_hash, no_telp, alamat, nomor_rt, nomor_rw)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING warga_id""",
-                        (nik, nama, email, hash_password(password), phone, alamat, Config.RT_NUMBER, Config.RW_NUMBER)
+                        """INSERT INTO warga (nik, nama, email, password_hash, no_telp, alamat, nomor_rt, nomor_rw, tanda_tangan_digital)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING warga_id""",
+                        (nik, nama, email, hash_password(password), phone, alamat, Config.RT_NUMBER, Config.RW_NUMBER, sig_key)
                     )
                 print(f"  [+] Development-only user: {nama} ({role.upper()})")
-            elif not existing.get('tanda_tangan_url'):
+            elif not existing.get('tanda_tangan_digital'):
                 execute(
-                    "UPDATE users SET tanda_tangan_url = %s WHERE user_id = %s",
-                    (sig_key, existing['user_id'])
+                    f"UPDATE {table} SET tanda_tangan_digital = %s WHERE {id_col} = %s",
+                    (sig_key, existing[id_col])
                 )
                 print(f"  [+] Updated development signature for: {nama}")
 
