@@ -43,7 +43,7 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state) => const RegisterScreen(),
     ),
 
-    // Authenticated Shell with Persistent Stateless Bottom Navigation Bar
+    // Authenticated Shell with Persistent Stateless Bottom Navigation Bar (Primary Tabs ONLY)
     ShellRoute(
       navigatorKey: shellNavigatorKey,
       builder: (context, state, child) {
@@ -55,7 +55,7 @@ final GoRouter appRouter = GoRouter(
         );
       },
       routes: [
-        // Warga Routes
+        // Warga Primary Tabs
         GoRoute(
           path: RouteNames.wargaHome,
           builder: (context, state) => const WargaHomeScreen(),
@@ -64,19 +64,8 @@ final GoRouter appRouter = GoRouter(
           path: RouteNames.wargaPengajuan,
           builder: (context, state) => const LetterHistoryScreen(),
         ),
-        GoRoute(
-          path: RouteNames.wargaPengajuanBaru,
-          builder: (context, state) => const LetterApplicationScreen(),
-        ),
-        GoRoute(
-          path: '/letters/:id',
-          builder: (context, state) {
-            final id = int.tryParse(state.pathParameters['id'] ?? '0') ?? 0;
-            return LetterDetailScreen(applicationId: id);
-          },
-        ),
 
-        // RT Routes
+        // RT Primary Tabs
         GoRoute(
           path: RouteNames.rtHome,
           builder: (context, state) => const RTHomeScreen(),
@@ -86,44 +75,62 @@ final GoRouter appRouter = GoRouter(
           builder: (context, state) => const RTReviewScreen(),
         ),
 
-        // Shared Profile & Signature Routes
-        GoRoute(
-          path: RouteNames.profile,
-          builder: (context, state) => const ProfileScreen(),
-        ),
-        GoRoute(
-          path: RouteNames.editProfile,
-          builder: (context, state) => const EditProfileScreen(),
-        ),
-        GoRoute(
-          path: RouteNames.signature,
-          builder: (context, state) => const SignatureScreen(),
-        ),
-
-        // Chatbot & Notifications
+        // Chatbot Tab
         GoRoute(
           path: RouteNames.chatbot,
           builder: (context, state) => const ChatbotScreen(),
         ),
-        GoRoute(
-          path: RouteNames.notifications,
-          builder: (context, state) => const NotificationFeedScreen(),
-        ),
-
-        // PDF Preview
-        GoRoute(
-          path: '/surat/preview/:id',
-          builder: (context, state) {
-            final id = int.tryParse(state.pathParameters['id'] ?? '0') ?? 0;
-            return PdfViewerScreen(applicationId: id);
-          },
-        ),
       ],
+    ),
+
+    // Sub-screens & Detail Pages (Outside Shell, Root Navigator, No Bottom Nav Bar)
+    GoRoute(
+      parentNavigatorKey: rootNavigatorKey,
+      path: RouteNames.wargaPengajuanBaru,
+      builder: (context, state) =>
+          const _AuthGate(child: LetterApplicationScreen()),
+    ),
+    GoRoute(
+      parentNavigatorKey: rootNavigatorKey,
+      path: '/letters/:id',
+      builder: (context, state) {
+        final id = int.tryParse(state.pathParameters['id'] ?? '0') ?? 0;
+        return _AuthGate(child: LetterDetailScreen(applicationId: id));
+      },
+    ),
+    GoRoute(
+      parentNavigatorKey: rootNavigatorKey,
+      path: RouteNames.profile,
+      builder: (context, state) => const _AuthGate(child: ProfileScreen()),
+    ),
+    GoRoute(
+      parentNavigatorKey: rootNavigatorKey,
+      path: RouteNames.editProfile,
+      builder: (context, state) => const _AuthGate(child: EditProfileScreen()),
+    ),
+    GoRoute(
+      parentNavigatorKey: rootNavigatorKey,
+      path: RouteNames.signature,
+      builder: (context, state) => const _AuthGate(child: SignatureScreen()),
+    ),
+    GoRoute(
+      parentNavigatorKey: rootNavigatorKey,
+      path: RouteNames.notifications,
+      builder: (context, state) =>
+          const _AuthGate(child: NotificationFeedScreen()),
+    ),
+    GoRoute(
+      parentNavigatorKey: rootNavigatorKey,
+      path: '/surat/preview/:id',
+      builder: (context, state) {
+        final id = int.tryParse(state.pathParameters['id'] ?? '0') ?? 0;
+        return _AuthGate(child: PdfViewerScreen(applicationId: id));
+      },
     ),
   ],
 );
 
-/// Persistent Shell hosting the stateless Bottom Navigation Bar
+/// Persistent Shell hosting the stateless Bottom Navigation Bar for primary tabs
 class _MainNavigationShell extends ConsumerWidget {
   final String currentLocation;
   final Widget child;
@@ -140,35 +147,30 @@ class _MainNavigationShell extends ConsumerWidget {
     final isRT = user?.isRT ?? false;
 
     // Calculate active tab index: 0 = Pengajuan, 1 = Beranda, 2 = TanyaRT
-    int currentIndex = -1;
+    int currentIndex = 1;
     if (currentLocation == RouteNames.wargaPengajuan ||
         currentLocation == RouteNames.rtQueue) {
       currentIndex = 0;
-    } else if (currentLocation == RouteNames.wargaHome ||
-        currentLocation == RouteNames.rtHome) {
-      currentIndex = 1;
     } else if (currentLocation == RouteNames.chatbot) {
       currentIndex = 2;
+    } else {
+      currentIndex = 1;
     }
-
-    final bool showBottomNav = currentIndex != -1;
 
     return Scaffold(
       body: child,
-      bottomNavigationBar: showBottomNav
-          ? RTBottomNavBar(
-              currentIndex: currentIndex,
-              onTap: (index) {
-                if (index == 0) {
-                  context.go(isRT ? RouteNames.rtQueue : RouteNames.wargaPengajuan);
-                } else if (index == 1) {
-                  context.go(isRT ? RouteNames.rtHome : RouteNames.wargaHome);
-                } else if (index == 2) {
-                  context.go(RouteNames.chatbot);
-                }
-              },
-            )
-          : null,
+      bottomNavigationBar: RTBottomNavBar(
+        currentIndex: currentIndex,
+        onTap: (index) {
+          if (index == 0) {
+            context.go(isRT ? RouteNames.rtQueue : RouteNames.wargaPengajuan);
+          } else if (index == 1) {
+            context.go(isRT ? RouteNames.rtHome : RouteNames.wargaHome);
+          } else if (index == 2) {
+            context.go(RouteNames.chatbot);
+          }
+        },
+      ),
     );
   }
 }

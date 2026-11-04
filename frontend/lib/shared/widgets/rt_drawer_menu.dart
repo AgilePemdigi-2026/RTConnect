@@ -197,7 +197,7 @@ class RTDrawerMenu extends ConsumerWidget {
                     title: isRT ? 'Daftar Pengajuan' : 'Riwayat Pengajuan',
                     onTap: () {
                       Navigator.pop(context);
-                      context.push(isRT ? RouteNames.rtQueue : RouteNames.wargaPengajuan);
+                      context.go(isRT ? RouteNames.rtQueue : RouteNames.wargaPengajuan);
                     },
                   ),
                   _buildDrawerMenuTile(
@@ -238,7 +238,7 @@ class RTDrawerMenu extends ConsumerWidget {
                     title: 'Pusat Bantuan & TanyaRT',
                     onTap: () {
                       Navigator.pop(context);
-                      context.push(RouteNames.chatbot);
+                      context.go(RouteNames.chatbot);
                     },
                   ),
                 ],

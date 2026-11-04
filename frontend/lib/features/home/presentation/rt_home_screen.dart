@@ -305,7 +305,7 @@ class RTHomeScreen extends ConsumerWidget {
                       ),
                     ),
                     TextButton(
-                      onPressed: () => context.push(RouteNames.rtQueue),
+                      onPressed: () => context.go(RouteNames.rtQueue),
                       style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
                         minimumSize: Size.zero,
@@ -420,7 +420,7 @@ class RTHomeScreen extends ConsumerWidget {
                       'Tinjau draf surat, verifikasi data, dan proses pengesahan tanda tangan.',
                   icon: Icons.checklist_rtl_rounded,
                   iconColor: AppColors.primaryAccent,
-                  onTap: () => context.push(RouteNames.rtQueue),
+                  onTap: () => context.go(RouteNames.rtQueue),
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 _buildQuickActionTile(
@@ -430,7 +430,7 @@ class RTHomeScreen extends ConsumerWidget {
                       'Periksa kebijakan RT, SOP layanan, dan data warga terpadu.',
                   icon: Icons.smart_toy_rounded,
                   iconColor: const Color(0xFF6366F1),
-                  onTap: () => context.push(RouteNames.chatbot),
+                  onTap: () => context.go(RouteNames.chatbot),
                 ),
                 const SizedBox(height: 40),
               ],

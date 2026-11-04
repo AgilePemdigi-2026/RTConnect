@@ -116,7 +116,7 @@ class NotificationFeedScreen extends ConsumerWidget {
                               }
                             }
                           } else if (tautan.startsWith('/chat')) {
-                            context.push(RouteNames.chatbot);
+                            context.go(RouteNames.chatbot);
                           } else {
                             try {
                               context.push(tautan);

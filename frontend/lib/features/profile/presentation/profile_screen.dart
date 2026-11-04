@@ -339,7 +339,7 @@ class ProfileScreen extends ConsumerWidget {
                   _buildActionMenuTile(
                     icon: Icons.help_outline_rounded,
                     title: 'Pusat Bantuan',
-                    onTap: () => context.push(RouteNames.chatbot),
+                    onTap: () => context.go(RouteNames.chatbot),
                   ),
                 ],
               ),

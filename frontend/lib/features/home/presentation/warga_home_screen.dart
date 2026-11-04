@@ -265,7 +265,7 @@ class WargaHomeScreen extends ConsumerWidget {
                         icon: Icons.smart_toy_rounded,
                         iconBgColor: const Color(0xFF6366F1),
                         cardBgColor: Colors.white,
-                        onTap: () => context.push(RouteNames.chatbot),
+                        onTap: () => context.go(RouteNames.chatbot),
                       ),
                     ),
                   ],
@@ -284,7 +284,7 @@ class WargaHomeScreen extends ConsumerWidget {
                       ),
                     ),
                     TextButton(
-                      onPressed: () => context.push(RouteNames.wargaPengajuan),
+                      onPressed: () => context.go(RouteNames.wargaPengajuan),
                       style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
                         minimumSize: Size.zero,
