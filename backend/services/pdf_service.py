@@ -62,14 +62,9 @@ def generate_official_letter_pdf_bytes(
     letter_type: dict,
     official_letter_number: str,
     rt_user: dict,
-    output_filename: str = None,
-) -> str:
-    os.makedirs(Config.LETTERS_FOLDER, exist_ok=True)
-    if not output_filename:
-        safe_num = official_letter_number.replace('/', '_').replace('\\', '_')
-        output_filename = f'Surat_{safe_num}.pdf'
-    pdf_path = os.path.join(Config.LETTERS_FOLDER, output_filename)
-
+) -> bytes:
+    buffer = io.BytesIO()
+    
     fields = build_letter_fields(resident, application.get('keperluan'), application)
     fields['tempat_tgl_lahir'] = f"{fields['tempat_lahir']}, {fields['tanggal_lahir']}"
     fields['kk_ktp'] = f"{fields['nomor_kk']} / {fields['nik']}"
@@ -83,7 +78,7 @@ def generate_official_letter_pdf_bytes(
     number = ParagraphStyle('Number', parent=head, fontSize=14, alignment=1)
     center = ParagraphStyle('Center', parent=body, alignment=1)
 
-    doc = SimpleDocTemplate(pdf_path, pagesize=A4, leftMargin=64, rightMargin=58,
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=64, rightMargin=58,
                             topMargin=50, bottomMargin=40,
                             title=f'Surat Pengantar {official_letter_number}')
     width = A4[0] - 64 - 58 - 12  # lebar isi (dikurangi padding frame)
