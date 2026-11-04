@@ -200,7 +200,8 @@ def run_api_tests():
     res_direct_apply = client.post('/api/v1/letters/apply', headers=warga_headers, json={
         'jenis_surat_id': dom_type['jenis_surat_id'],
         'keperluan': 'Keperluan mendesak tanda tangan digital langsung',
-        'metode_tanda_tangan': 'digital'
+        'metode_tanda_tangan': 'digital',
+        **PEMOHON,
     })
     assert res_direct_apply.status_code == 201
     direct_id = res_direct_apply.get_json()['data']['pengajuan_id']
