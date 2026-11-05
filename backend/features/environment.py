@@ -35,16 +35,21 @@ def before_scenario(context, scenario):
 
 def after_all(context):
     """Clean up test records created during BDD execution."""
-    from database.db import execute
-    if getattr(context, 'created_letter_ids', None):
-        for pid in context.created_letter_ids:
-            execute("DELETE FROM surat_final WHERE pengajuan_id = %s", (pid,))
-            execute("DELETE FROM pengajuan_surat WHERE pengajuan_id = %s", (pid,))
-    if getattr(context, 'created_session_ids', None):
-        for sid in context.created_session_ids:
-            execute("DELETE FROM chat_messages WHERE session_id = %s", (sid,))
-            execute("DELETE FROM chat_sessions WHERE session_id = %s", (sid,))
-    if getattr(context, 'created_user_ids', None):
-        for uid in context.created_user_ids:
-            execute("DELETE FROM notifikasi WHERE penerima_id = %s", (uid,))
-            execute("DELETE FROM users WHERE user_id = %s", (uid,))
+    from database.db import close_pool, execute
+    try:
+        if getattr(context, 'created_letter_ids', None):
+            for pid in context.created_letter_ids:
+                execute("DELETE FROM suratfinal WHERE pengajuan_id = %s", (pid,))
+                execute("DELETE FROM draftsurat WHERE pengajuan_id = %s", (pid,))
+                execute("DELETE FROM pengajuansurat WHERE pengajuan_id = %s", (pid,))
+        if getattr(context, 'created_session_ids', None):
+            for sid in context.created_session_ids:
+                execute("DELETE FROM retrievallog WHERE message_id IN (SELECT message_id FROM chatmessage WHERE chat_session_id = %s)", (sid,))
+                execute("DELETE FROM chatmessage WHERE chat_session_id = %s", (sid,))
+                execute("DELETE FROM chatsession WHERE chat_session_id = %s", (sid,))
+        if getattr(context, 'created_user_ids', None):
+            for uid in context.created_user_ids:
+                execute("DELETE FROM notifikasi WHERE warga_id = %s", (uid,))
+                execute("DELETE FROM warga WHERE warga_id = %s", (uid,))
+    finally:
+        close_pool()
