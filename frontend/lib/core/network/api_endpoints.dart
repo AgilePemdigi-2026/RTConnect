@@ -7,6 +7,8 @@ class ApiEndpoints {
   static const String updateProfile = '/auth/me'; // API-004
   static const String updateSignature = '/auth/signature'; // API-005
   static const String getSignature = '/auth/signature'; // API-006
+  static const String updateAvatar = '/auth/avatar'; // API-008
+  static const String getAvatar = '/auth/avatar'; // API-009
   static String fileUrl(String path) => '/auth/files/$path'; // API-007
 
   // Letters

@@ -4,13 +4,28 @@ import 'package:go_router/go_router.dart';
 import '../../../core/router/route_names.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../auth/presentation/auth_controller.dart';
+import 'profile_controller.dart';
 
 /// Screen: Profile Page (Grounded in Figma Node #184:1312 & #186:1175)
-class ProfileScreen extends ConsumerWidget {
+class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends ConsumerState<ProfileScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(profileControllerProvider.notifier).loadAvatar();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profileState = ref.watch(profileControllerProvider);
     final authState = ref.watch(authControllerProvider);
     final user = authState.user;
     final isRT = user?.isRT ?? false;
@@ -113,16 +128,36 @@ class ProfileScreen extends ConsumerWidget {
                             width: 2.0,
                           ),
                         ),
-                        child: Center(
-                          child: Text(
-                            sapaan.isNotEmpty ? sapaan[0].toUpperCase() : 'U',
-                            style: const TextStyle(
-                              fontSize: 26,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF0051D5),
-                            ),
-                          ),
-                        ),
+                        child: profileState.isAvatarLoading
+                            ? const Center(
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.0,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0051D5)),
+                                  ),
+                                ),
+                              )
+                            : (profileState.avatarBytes != null
+                                ? ClipOval(
+                                    child: Image.memory(
+                                      profileState.avatarBytes!,
+                                      width: 64,
+                                      height: 64,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  )
+                                : Center(
+                                    child: Text(
+                                      sapaan.isNotEmpty ? sapaan[0].toUpperCase() : 'U',
+                                      style: const TextStyle(
+                                        fontSize: 26,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF0051D5),
+                                      ),
+                                    ),
+                                  )),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -349,7 +384,7 @@ class ProfileScreen extends ConsumerWidget {
 
             // 4. Tombol Keluar Akun
             InkWell(
-              onTap: () => _showLogoutDialog(context, ref),
+              onTap: () => _showLogoutDialog(context),
               borderRadius: BorderRadius.circular(12.0),
               child: Container(
                 width: double.infinity,
@@ -472,7 +507,7 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  void _showLogoutDialog(BuildContext context, WidgetRef ref) {
+  void _showLogoutDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(

@@ -10,14 +10,14 @@ from database.db import query_one
 _WARGA_SELECT = """
     SELECT warga_id AS user_id, nik, nama AS nama_lengkap, email, password_hash,
            no_telp AS nomor_telepon, alamat, nomor_rt, nomor_rw,
-           'warga'::text AS role, tanda_tangan_digital AS tanda_tangan_url, is_active
+           'warga'::text AS role, tanda_tangan_digital AS tanda_tangan_url, foto_profil, is_active
     FROM warga
 """
 
 _RT_SELECT = """
     SELECT rt_id AS user_id, nik, nama AS nama_lengkap, email, password_hash,
            no_telp AS nomor_telepon, NULL::text AS alamat, nomor_rt, nomor_rw,
-           'rt'::text AS role, tanda_tangan_digital AS tanda_tangan_url, is_active
+           'rt'::text AS role, tanda_tangan_digital AS tanda_tangan_url, foto_profil, is_active
     FROM rt
 """
 
@@ -89,3 +89,16 @@ def update_user_signature(role: str, user_id: int, signature_url: str):
         (signature_url, user_id)
     )
     return get_user(role, user_id)
+
+def update_user_avatar(role: str, user_id: int, foto_profil_key: str):
+    """Perbarui foto profil pengguna."""
+    if role not in _SELECTS:
+        return None
+    table = 'rt' if role == 'rt' else 'warga'
+    id_column = 'rt_id' if role == 'rt' else 'warga_id'
+    query_one(
+        f"UPDATE {table} SET foto_profil = %s WHERE {id_column} = %s RETURNING {id_column}",
+        (foto_profil_key, user_id)
+    )
+    return get_user(role, user_id)
+

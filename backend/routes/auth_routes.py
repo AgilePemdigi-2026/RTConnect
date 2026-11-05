@@ -6,7 +6,7 @@ from config import Config
 from database.db import UniqueViolation, execute_returning
 from middleware.auth_middleware import generate_token, jwt_required
 from services.file_storage import read_bytes, store_upload
-from services.user_service import find_by_identity, nik_or_email_taken, update_user_profile, update_user_signature
+from services.user_service import find_by_identity, nik_or_email_taken, update_user_profile, update_user_signature, update_user_avatar
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/v1/auth')
 
@@ -177,7 +177,8 @@ def login():
                 'alamat': user['alamat'],
                 'nomor_rt': user['nomor_rt'],
                 'nomor_rw': user['nomor_rw'],
-                'role': user['role']
+                'role': user['role'],
+                'foto_profil': user.get('foto_profil')
             }
         },
         'error': None
@@ -201,7 +202,8 @@ def get_current_user_profile():
             'nomor_rt': user['nomor_rt'],
             'nomor_rw': user['nomor_rw'],
             'role': user['role'],
-            'tanda_tangan_digital': user['tanda_tangan_url']
+            'tanda_tangan_digital': user['tanda_tangan_url'],
+            'foto_profil': user.get('foto_profil')
         },
         'error': None
     }), 200
@@ -240,7 +242,8 @@ def update_profile():
             'nomor_rt': updated['nomor_rt'],
             'nomor_rw': updated['nomor_rw'],
             'role': updated['role'],
-            'tanda_tangan_digital': updated['tanda_tangan_url']
+            'tanda_tangan_digital': updated['tanda_tangan_url'],
+            'foto_profil': updated.get('foto_profil')
         },
         'error': None
     }), 200
@@ -329,3 +332,85 @@ def get_file(storage_key):
         }), 404
     mimetype = 'image/png' if storage_key.endswith('.png') else ('application/pdf' if storage_key.endswith('.pdf') else 'application/octet-stream')
     return send_file(io.BytesIO(data), mimetype=mimetype)
+
+@auth_bp.route('/avatar', methods=['POST'])
+@jwt_required
+def update_avatar():
+    """API-008: Memperbarui foto profil pengguna"""
+    user = request.current_user
+    foto_file = request.files.get('foto') or request.files.get('avatar') or request.files.get('file')
+
+    if not foto_file or not foto_file.filename:
+        return jsonify({
+            'success': False,
+            'message': 'File foto profil wajib disertakan',
+            'data': None,
+            'error': 'MISSING_FILE'
+        }), 400
+
+    try:
+        avatar_key = store_upload(foto_file, 'avatars')
+    except ValueError as err:
+        return jsonify({
+            'success': False,
+            'message': str(err),
+            'data': None,
+            'error': 'INVALID_FILE'
+        }), 400
+
+    updated = update_user_avatar(user['role'], user['user_id'], avatar_key)
+    return jsonify({
+        'success': True,
+        'message': 'Foto profil berhasil diperbarui',
+        'data': {
+            'foto_profil': avatar_key,
+            'user': {
+                'user_id': updated['user_id'],
+                'nama_lengkap': updated['nama_lengkap'],
+                'email': updated['email'],
+                'nik': updated['nik'],
+                'nomor_telepon': updated['nomor_telepon'],
+                'alamat': updated['alamat'],
+                'nomor_rt': updated['nomor_rt'],
+                'nomor_rw': updated['nomor_rw'],
+                'role': updated['role'],
+                'tanda_tangan_digital': updated['tanda_tangan_url'],
+                'foto_profil': updated.get('foto_profil')
+            }
+        },
+        'error': None
+    }), 200
+
+
+@auth_bp.route('/avatar', methods=['GET'])
+@jwt_required
+def get_avatar():
+    """API-009: Mengambil file gambar foto profil pengguna saat ini"""
+    user = request.current_user
+    avatar_key = user.get('foto_profil')
+    if not avatar_key:
+        return jsonify({
+            'success': False,
+            'message': 'Foto profil belum diunggah',
+            'data': None,
+            'error': 'NOT_FOUND'
+        }), 404
+
+    try:
+        data = read_bytes(avatar_key)
+    except FileNotFoundError:
+        return jsonify({
+            'success': False,
+            'message': 'File foto profil tidak ditemukan di penyimpanan server',
+            'data': None,
+            'error': 'FILE_NOT_FOUND'
+        }), 404
+
+    mimetype = 'image/png' if avatar_key.lower().endswith('.png') else 'image/jpeg'
+    return send_file(
+        io.BytesIO(data),
+        mimetype=mimetype,
+        as_attachment=False,
+        download_name='avatar.png' if mimetype == 'image/png' else 'avatar.jpg'
+    )
+
