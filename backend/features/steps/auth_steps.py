@@ -26,7 +26,7 @@ def step_prepare_registration_with_params(context, nik, email, password):
 
 @given('an existing resident user with email "{email}" is registered')
 def step_ensure_resident_exists(context, email):
-    user = query_one("SELECT user_id, email FROM users WHERE email = %s", (email,))
+    user = query_one("SELECT warga_id AS user_id, email FROM warga WHERE lower(email) = lower(%s)", (email,))
     assert user is not None, f"Resident {email} does not exist in seed data"
 
 @when('I submit a registration with an already registered email "{email}"')
@@ -68,7 +68,10 @@ def step_assert_jwt_token(context):
 @then('the registered user should exist in the database with role "{expected_role}"')
 def step_assert_user_in_db(context, expected_role):
     nik = context.last_created_nik
-    user = query_one("SELECT user_id, nik, role FROM users WHERE nik = %s", (nik,))
+    if expected_role == 'rt':
+        user = query_one("SELECT rt_id AS user_id, nik, 'rt'::text AS role FROM rt WHERE nik = %s", (nik,))
+    else:
+        user = query_one("SELECT warga_id AS user_id, nik, 'warga'::text AS role FROM warga WHERE nik = %s", (nik,))
     assert user is not None, f"User with NIK {nik} not found in DB"
     assert user['role'] == expected_role, f"Expected role {expected_role}, got {user['role']}"
     context.created_user_ids.append(user['user_id'])
