@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/presentation/auth_controller.dart';
 import '../data/profile_repository.dart';
@@ -8,24 +9,37 @@ final profileRepositoryProvider = Provider<ProfileRepository>((ref) {
 
 class ProfileState {
   final bool isLoading;
+  final bool isSignatureLoading;
   final String? errorMessage;
   final String? successMessage;
+  final Uint8List? signatureBytes;
+  final DateTime? signatureUpdatedAt;
 
   const ProfileState({
     this.isLoading = false,
+    this.isSignatureLoading = false,
     this.errorMessage,
     this.successMessage,
+    this.signatureBytes,
+    this.signatureUpdatedAt,
   });
 
   ProfileState copyWith({
     bool? isLoading,
+    bool? isSignatureLoading,
     String? errorMessage,
     String? successMessage,
+    Uint8List? signatureBytes,
+    DateTime? signatureUpdatedAt,
+    bool clearSignature = false,
   }) {
     return ProfileState(
       isLoading: isLoading ?? this.isLoading,
+      isSignatureLoading: isSignatureLoading ?? this.isSignatureLoading,
       errorMessage: errorMessage,
       successMessage: successMessage,
+      signatureBytes: clearSignature ? null : (signatureBytes ?? this.signatureBytes),
+      signatureUpdatedAt: signatureUpdatedAt ?? this.signatureUpdatedAt,
     );
   }
 }
@@ -41,6 +55,15 @@ class ProfileController extends StateNotifier<ProfileState> {
   final Ref _ref;
 
   ProfileController(this._repository, this._ref) : super(const ProfileState());
+
+  Future<void> loadSignature([String? customPath]) async {
+    state = state.copyWith(isSignatureLoading: true);
+    final bytes = await _repository.getSignatureBytes(customPath);
+    state = state.copyWith(
+      isSignatureLoading: false,
+      signatureBytes: bytes,
+    );
+  }
 
   Future<bool> updateProfile({
     required String namaLengkap,
@@ -92,6 +115,8 @@ class ProfileController extends StateNotifier<ProfileState> {
       }
       state = state.copyWith(
         isLoading: false,
+        signatureBytes: fileBytes != null ? Uint8List.fromList(fileBytes) : state.signatureBytes,
+        signatureUpdatedAt: DateTime.now(),
         successMessage: 'Tanda tangan digital berhasil diperbarui',
       );
       return true;

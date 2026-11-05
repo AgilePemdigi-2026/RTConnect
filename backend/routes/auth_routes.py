@@ -1,10 +1,11 @@
 import bcrypt
 import re
-from flask import Blueprint, request, jsonify
+import io
+from flask import Blueprint, request, jsonify, send_file
 from config import Config
 from database.db import UniqueViolation, execute_returning
 from middleware.auth_middleware import generate_token, jwt_required
-from services.file_storage import store_upload
+from services.file_storage import read_bytes, store_upload
 from services.user_service import find_by_identity, nik_or_email_taken, update_user_profile, update_user_signature
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/v1/auth')
@@ -281,3 +282,50 @@ def update_signature():
         },
         'error': None
     }), 200
+
+@auth_bp.route('/signature', methods=['GET'])
+@jwt_required
+def get_signature():
+    """API-006: Mengambil file gambar tanda tangan digital pengguna saat ini"""
+    user = request.current_user
+    sig_key = user.get('tanda_tangan_url')
+    if not sig_key:
+        return jsonify({
+            'success': False,
+            'message': 'Tanda tangan belum diunggah',
+            'data': None,
+            'error': 'NOT_FOUND'
+        }), 404
+
+    try:
+        data = read_bytes(sig_key)
+    except FileNotFoundError:
+        return jsonify({
+            'success': False,
+            'message': 'File tanda tangan tidak ditemukan di penyimpanan server',
+            'data': None,
+            'error': 'FILE_NOT_FOUND'
+        }), 404
+
+    return send_file(
+        io.BytesIO(data),
+        mimetype='image/png',
+        as_attachment=False,
+        download_name='signature.png'
+    )
+
+@auth_bp.route('/files/<path:storage_key>', methods=['GET'])
+@jwt_required
+def get_file(storage_key):
+    """API-007: Mengambil file privat berdasarkan storage key"""
+    try:
+        data = read_bytes(storage_key)
+    except (ValueError, FileNotFoundError):
+        return jsonify({
+            'success': False,
+            'message': 'File tidak ditemukan di penyimpanan server',
+            'data': None,
+            'error': 'FILE_NOT_FOUND'
+        }), 404
+    mimetype = 'image/png' if storage_key.endswith('.png') else ('application/pdf' if storage_key.endswith('.pdf') else 'application/octet-stream')
+    return send_file(io.BytesIO(data), mimetype=mimetype)

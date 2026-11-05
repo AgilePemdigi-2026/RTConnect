@@ -21,15 +21,17 @@ def jwt_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('Bearer '):
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+        elif request.args.get('token'):
+            token = request.args.get('token')
+        else:
             return jsonify({
                 'success': False,
                 'message': 'Token autentikasi tidak ditemukan atau tidak valid',
                 'data': None,
                 'error': 'UNAUTHORIZED'
             }), 401
-
-        token = auth_header.split(' ')[1]
         try:
             payload = jwt.decode(token, Config.JWT_SECRET, algorithms=['HS256'])
             user_id = int(payload['sub'])
