@@ -1,9 +1,9 @@
 name: Sprint 1 BDD Testing (Gherkin)
-run-name: Sprint 1 BDD — Backend Gherkin Test Suite (#${{ github.run_number }})
+run-name: "Sprint 1 BDD — Backend Gherkin Test Suite (#${{ github.run_number }})"
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/sprint1-bdd-actions]
   pull_request:
     branches: [main]
   workflow_dispatch:
