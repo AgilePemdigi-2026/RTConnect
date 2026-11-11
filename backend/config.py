@@ -74,6 +74,12 @@ class Config:
     RT_KELURAHAN = os.getenv('RT_KELURAHAN', 'Kedurus')
     RT_KECAMATAN = os.getenv('RT_KECAMATAN', 'Karang Pilang')
     RT_KABUPATEN = os.getenv('RT_KABUPATEN', 'Kota Surabaya')
+    # Asisten AI pengisi formulir (Gemini). Kosongkan GEMINI_API_KEY untuk menonaktifkan.
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+    GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-flash-latest')
+    GEMINI_FALLBACK_MODELS = [m.strip() for m in os.getenv(
+        'GEMINI_FALLBACK_MODELS', 'gemini-flash-latest,gemini-flash-lite-latest').split(',') if m.strip()]
+
     # Alamat rumah Ketua RT (tempat pengambilan surat tanda tangan basah)
     RT_OFFICE_ADDRESS = os.getenv('RT_OFFICE_ADDRESS', 'Gunungsari Indah Blok YY No. 22')
     RT_CHAIR_NAME = os.getenv('RT_CHAIR_NAME', 'Ahmad Dhafin')
