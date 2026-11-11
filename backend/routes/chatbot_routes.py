@@ -3,6 +3,7 @@ from database.db import query_all, query_one, execute, execute_returning, transa
 from middleware.auth_middleware import jwt_required, roles_accepted
 from services.notification_service import add_notification
 from services.rag_service import search_knowledge_base
+from services.chatbot_rules import is_sensitive_credential_for_storage, mask_pii
 from services.user_service import first_rt_id
 
 chatbot_bp = Blueprint('chatbot', __name__, url_prefix='/api/v1/chatbot')
@@ -47,10 +48,18 @@ def ask_chatbot():
         if existing['warga_id'] != user['user_id']:
             return jsonify({'success': False, 'message': 'Akses ditolak', 'data': None, 'error': 'FORBIDDEN'}), 403
 
-    # 1. Catat pertanyaan warga ke tabel chatmessage
+    # 1. Evaluasi keamanan & sanitasi sebelum penyimpanan pesan warga (Privacy P0/P1)
+    if is_sensitive_credential_for_storage(query_text):
+        # Jangan simpan kredensial rahasia plaintext ke database; gunakan placeholder generik yang aman
+        pesan_disimpan = "[Pesan disembunyikan oleh sistem karena memuat data rahasia/kredensial]"
+    else:
+        # Masking PII (NIK 16 digit & Nomor Telepon dengan pemisah) agar tidak tersimpan mentah dalam chat history
+        pesan_disimpan = mask_pii(query_text)
+
+    # 2. Catat pesan warga yang telah disanitasi ke tabel chatmessage
     execute(
         "INSERT INTO chatmessage (chat_session_id, pengirim, isi_pesan) VALUES (%s, 'warga', %s)",
-        (session_id, query_text)
+        (session_id, pesan_disimpan)
     )
 
     # 2. Find matching knowledge with lexical retrieval
@@ -78,7 +87,7 @@ def ask_chatbot():
             if rt_id:
                 add_notification(
                     'rt', rt_id, 'eskalasi_chat', 'Eskalasi Pertanyaan Warga',
-                    f"Warga ({user['nama_lengkap']}) menanyakan hal di luar basis data: '{query_text[:50]}...'",
+                    "Warga membutuhkan bantuan administrasi melalui chatbot.",
                     f"/chat/{session_id}", chat_session_id=session_id, cur=cur
                 )
 
