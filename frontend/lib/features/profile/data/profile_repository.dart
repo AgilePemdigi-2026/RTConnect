@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
@@ -71,5 +72,25 @@ class ProfileRepository {
     );
     final data = response.data!['data'] as Map<String, dynamic>;
     return data['tanda_tangan_digital']?.toString() ?? '';
+  }
+
+  Future<Uint8List?> getSignatureBytes([String? customPath]) async {
+    try {
+      final endpoint = (customPath != null && customPath.isNotEmpty)
+          ? ApiEndpoints.fileUrl(customPath)
+          : ApiEndpoints.getSignature;
+      final response = await _apiClient.dio.get<List<int>>(
+        endpoint,
+        options: Options(
+          responseType: ResponseType.bytes,
+        ),
+      );
+      if (response.data != null && response.data!.isNotEmpty) {
+        return Uint8List.fromList(response.data!);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 }

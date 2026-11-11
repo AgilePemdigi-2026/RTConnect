@@ -104,7 +104,21 @@ def read_bytes(key):
         except Exception as error:
             error_code = getattr(error, 'response', {}).get('Error', {}).get('Code')
             if error_code in {'NoSuchKey', '404', 'NotFound'}:
-                raise FileNotFoundError(key) from error
+                try:
+                    with open(_local_path(key), 'rb') as src:
+                        local_data = src.read()
+                    try:
+                        _s3_client().put_object(
+                            Bucket=Config.S3_BUCKET,
+                            Key=key,
+                            Body=local_data,
+                            ContentType='image/png' if key.endswith('.png') else 'application/octet-stream'
+                        )
+                    except Exception:
+                        pass
+                    return local_data
+                except Exception:
+                    raise FileNotFoundError(key) from error
             raise
         return response['Body'].read()
 

@@ -6,6 +6,8 @@ class ApiEndpoints {
   static const String me = '/auth/me'; // API-003
   static const String updateProfile = '/auth/me'; // API-004
   static const String updateSignature = '/auth/signature'; // API-005
+  static const String getSignature = '/auth/signature'; // API-006
+  static String fileUrl(String path) => '/auth/files/$path'; // API-007
 
   // Letters
   static const String letterTypes = '/letters/types'; // API-004
