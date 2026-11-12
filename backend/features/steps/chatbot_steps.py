@@ -48,17 +48,18 @@ def step_assert_field_contains(context, field_path, substring):
 def step_assert_chat_message_recorded(context):
     sid = getattr(context, 'active_session_id', None)
     assert sid is not None, "No active session ID"
-    msgs = query_all("SELECT message_id, pengirim, isi_pesan FROM chat_messages WHERE session_id = %s", (sid,))
+    msgs = query_all("SELECT message_id, pengirim, isi_pesan FROM chatmessage WHERE chat_session_id = %s", (sid,))
     assert len(msgs) >= 2, f"Expected at least 2 messages (warga & AI), got {len(msgs)}"
 
 @given('an active chat session exists for "{email}"')
 def step_ensure_chat_session(context, email):
-    user = query_one("SELECT user_id FROM users WHERE email = %s", (email,))
-    assert user is not None
-    sess = query_one("SELECT session_id FROM chat_sessions WHERE warga_id = %s ORDER BY session_id DESC LIMIT 1", (user['user_id'],))
+    user = query_one("SELECT warga_id FROM warga WHERE lower(email) = lower(%s)", (email,))
+    assert user is not None, f"Resident {email} not found"
+    sess = query_one("SELECT chat_session_id AS session_id FROM chatsession WHERE warga_id = %s ORDER BY chat_session_id DESC LIMIT 1", (user['warga_id'],))
     if not sess:
-        sid = execute("INSERT INTO chat_sessions (warga_id, status_sesi) VALUES (%s, 'berlangsung')", (user['user_id'],))
-        execute("INSERT INTO chat_messages (session_id, pengirim, isi_pesan) VALUES (%s, 'warga', 'Halo TanyaRT')", (sid,))
+        row = query_one("INSERT INTO chatsession (warga_id, status) VALUES (%s, 'berlangsung') RETURNING chat_session_id", (user['warga_id'],))
+        sid = row['chat_session_id']
+        execute("INSERT INTO chatmessage (chat_session_id, pengirim, isi_pesan) VALUES (%s, 'warga', 'Halo TanyaRT')", (sid,))
         context.active_session_id = sid
     else:
         context.active_session_id = sess['session_id']
