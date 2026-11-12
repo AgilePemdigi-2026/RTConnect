@@ -82,10 +82,11 @@ class LetterRepository {
     return Map<String, dynamic>.from(response.data!['data'] as Map);
   }
 
-  Future<void> resubmitLetter(int id, String keperluan) async {
+  /// Kirim ulang surat yang direvisi. [dataPemohon] opsional: biodata yang diperbaiki/dilengkapi.
+  Future<void> resubmitLetter(int id, String keperluan, {Map<String, String>? dataPemohon}) async {
     await _apiClient.dio.put<Map<String, dynamic>>(
       ApiEndpoints.resubmitLetter(id),
-      data: {'keperluan': keperluan},
+      data: {'keperluan': keperluan, ...?dataPemohon},
     );
   }
 

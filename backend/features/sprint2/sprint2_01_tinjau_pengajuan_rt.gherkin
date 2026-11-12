@@ -1,0 +1,64 @@
+@sprint2 @review @letters
+Feature: [Sprint 2] Meninjau dan Menindaklanjuti Pengajuan Surat oleh Ketua RT
+  As a Ketua RT
+  I want to review incoming letter applications and approve, request revision, or reject them
+  So that every resident request is followed up with a clear decision
+
+  Background:
+    Given the RTConnect backend application is ready
+    And the resident "resident@example.test" and the RT head "rt@example.test" are logged in with password "LocalTestOnly#2026"
+    And the resident has a new "DOM" application with "digital" signature
+
+  Scenario: Ketua RT melihat pengajuan baru di antrean masuk
+    When the RT head opens the incoming application queue
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the queue should contain the application
+
+  Scenario: Ketua RT menyetujui pengajuan surat
+    When the RT head sends decision "approve" with note "Data sudah sesuai"
+    Then the response status code should be 200
+    And the response field "data.status" should be "disetujui"
+    And the application status in the database should be "disetujui"
+
+  Scenario: Ketua RT meminta revisi disertai catatan perbaikan
+    When the RT head sends decision "revise" with note "Keperluan kurang jelas, sebutkan nama bank"
+    Then the response status code should be 200
+    And the response field "data.status" should be "perlu_revisi"
+    And the response field "data.catatan_revisi" should be "Keperluan kurang jelas, sebutkan nama bank"
+    And the application status in the database should be "perlu_revisi"
+
+  Scenario: Permintaan revisi tanpa catatan ditolak sistem
+    When the RT head sends decision "revise" without a note
+    Then the response status code should be 400
+    And the response JSON should indicate failure
+    And the response field "error" should be "NOTE_REQUIRED"
+    And the application status in the database should be "diajukan"
+
+  Scenario: Ketua RT menolak pengajuan dengan alasan
+    When the RT head sends decision "reject" with note "Bukan warga RT 04"
+    Then the response status code should be 200
+    And the response field "data.status" should be "ditolak"
+    And the application status in the database should be "ditolak"
+
+  Scenario: Penolakan tanpa alasan ditolak sistem
+    When the RT head sends decision "reject" without a note
+    Then the response status code should be 400
+    And the response field "error" should be "REASON_REQUIRED"
+
+  Scenario: Aksi keputusan yang tidak dikenal ditolak
+    When the RT head sends decision "hapus" with note "coba"
+    Then the response status code should be 400
+    And the response field "error" should be "INVALID_ACTION"
+
+  Scenario: Pengajuan yang sedang menunggu revisi warga tidak dapat diputuskan ulang
+    Given the RT head has requested a revision with note "Lengkapi tujuan"
+    When the RT head sends decision "approve" with note "Langsung setujui"
+    Then the response status code should be 409
+    And the response field "error" should be "INVALID_STATUS"
+    And the application status in the database should be "perlu_revisi"
+
+  Scenario: Warga tidak berwenang memberi keputusan
+    When the resident tries to send decision "approve" on the application
+    Then the response status code should be 403
+    And the response JSON should indicate failure

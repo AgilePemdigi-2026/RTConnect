@@ -39,11 +39,13 @@ def after_all(context):
     try:
         if getattr(context, 'created_letter_ids', None):
             for pid in context.created_letter_ids:
+                execute("DELETE FROM notifikasi WHERE pengajuan_id = %s", (pid,))
                 execute("DELETE FROM suratfinal WHERE pengajuan_id = %s", (pid,))
                 execute("DELETE FROM draftsurat WHERE pengajuan_id = %s", (pid,))
                 execute("DELETE FROM pengajuansurat WHERE pengajuan_id = %s", (pid,))
         if getattr(context, 'created_session_ids', None):
             for sid in context.created_session_ids:
+                execute("DELETE FROM notifikasi WHERE chat_session_id = %s", (sid,))
                 execute("DELETE FROM retrievallog WHERE message_id IN (SELECT message_id FROM chatmessage WHERE chat_session_id = %s)", (sid,))
                 execute("DELETE FROM chatmessage WHERE chat_session_id = %s", (sid,))
                 execute("DELETE FROM chatsession WHERE chat_session_id = %s", (sid,))

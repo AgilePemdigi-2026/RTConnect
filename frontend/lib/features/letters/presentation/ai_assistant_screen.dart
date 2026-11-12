@@ -1074,7 +1074,10 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
               ),
               const SizedBox(height: 14),
               _card(
-                child: CheckboxListTile(
+                // Material transparan: ListTile di dalam Container berwarna wajib punya Material sendiri.
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: CheckboxListTile(
                   value: _setuju,
                   onChanged: (v) => setState(() => _setuju = v ?? false),
                   contentPadding: EdgeInsets.zero,
@@ -1084,6 +1087,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
                     'Saya menyatakan data di atas benar dan sudah saya periksa, termasuk isian dari asisten AI.',
                     style: AppTypography.bodySmall.copyWith(color: AppColors.textSlate, height: 1.5),
                   ),
+                ),
                 ),
               ),
             ],

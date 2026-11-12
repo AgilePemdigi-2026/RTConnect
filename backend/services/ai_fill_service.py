@@ -19,6 +19,16 @@ import re
 import time
 
 from config import Config
+
+# Diimpor saat server start (bukan saat request pertama): impor pertama menulis
+# file .pyc, dan reloader Flask (debug) bisa me-restart server di tengah request
+# sehingga aplikasi menerima 'Kesalahan tidak terduga'.
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:  # library belum terpasang -> asisten memakai data tersimpan
+    genai = None
+    types = None
 from services.applicant_data import AGAMA, FIELDS, JENIS_KELAMIN, OPTIONAL, PER_LETTER_FIELDS, STATUS_KAWIN
 
 logger = logging.getLogger(__name__)
@@ -91,8 +101,8 @@ def mask_sensitive(text: str) -> str:
 
 def _call_gemini(message: str, letter_types: list) -> dict:
     """Panggil Gemini dan kembalikan dict hasil ekstraksi. Raise bila gagal."""
-    from google import genai
-    from google.genai import types
+    if genai is None:
+        raise RuntimeError('Library google-genai belum terpasang (pip install -r requirements.txt)')
 
     daftar = '\n'.join(f"- {t['kode_surat']}: {t['nama_surat']}" for t in letter_types)
     # Dipanggil langsung (tanpa thread / HttpOptions timeout). Bila server sibuk

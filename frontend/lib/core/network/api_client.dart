@@ -61,8 +61,15 @@ class ApiClient {
         onError: (DioException error, handler) async {
           final requestPath = error.requestOptions.path.toLowerCase();
           final isLoginRequest = requestPath.endsWith('/auth/login');
+          // PIN TTD salah juga dibalas 401 (INVALID_PIN). Itu BUKAN sesi kedaluwarsa,
+          // jadi jangan hapus token login Ketua RT (kalau dihapus, percobaan berikutnya
+          // gagal dengan "Token autentikasi tidak ditemukan").
+          final responseData = error.response?.data;
+          final errorCode = responseData is Map ? responseData['error']?.toString() : null;
+          final isPinError = errorCode == 'INVALID_PIN' || errorCode == 'PIN_LOCKED';
           if (error.response?.statusCode == 401 &&
               !isLoginRequest &&
+              !isPinError &&
               _hasBearerToken(error.requestOptions)) {
             await _clearStoredCredentials();
           }

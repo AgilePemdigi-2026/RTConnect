@@ -17,8 +17,12 @@ class RouteNames {
   static const String rtQueue = '/rt/pengajuan';
   static const String rtDetail = '/rt/pengajuan/:id';
 
+  // Shared Profile & Signature Routes
+  static const String profile = '/profile';
+  static const String editProfile = '/profile/edit';
+  static const String signature = '/profile/signature';
+
   // Shared Preview & Notifications
   static const String pdfPreview = '/surat/preview/:id';
   static const String notifications = '/notifications';
-  static const String profile = '/profile';
 }

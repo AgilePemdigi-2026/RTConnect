@@ -1,0 +1,60 @@
+@sprint2 @revision @letters
+Feature: [Sprint 2] Revisi Pengajuan oleh Warga dengan Perubahan Biodata
+  As a resident whose application was sent back for revision
+  I want to correct the purpose, destination and my biodata (or complete it if it was empty)
+  So that the RT head can approve the corrected letter
+
+  Background:
+    Given the RTConnect backend application is ready
+    And the resident "resident@example.test" and the RT head "rt@example.test" are logged in with password "LocalTestOnly#2026"
+    And the resident has a new "DOM" application with "digital" signature
+
+  Scenario: Warga memperbaiki keperluan dan biodata lalu mengirim ulang
+    Given the RT head has requested a revision with note "Pekerjaan dan tujuan surat salah"
+    When the resident resubmits the application with:
+      | field       | value                                          |
+      | keperluan   | Persyaratan pembukaan rekening di Bank Jatim   |
+      | pekerjaan   | Wiraswasta                                     |
+      | tujuan      | Bank Jatim Cabang Karang Pilang                |
+      | status_kawin | Kawin                                         |
+    Then the response status code should be 200
+    And the response field "data.status" should be "diajukan"
+    And the response field "data.draf_ai" should contain "Wiraswasta"
+    And the application status in the database should be "diajukan"
+
+  Scenario: Biodata hasil revisi tersimpan dan catatan revisi dihapus
+    Given the RT head has requested a revision with note "Perbarui pekerjaan"
+    When the resident resubmits the application with:
+      | field     | value                          |
+      | keperluan | Persyaratan administrasi bank  |
+      | pekerjaan | Guru                           |
+    And the resident opens the application detail
+    Then the response field "data.pekerjaan" should be "Guru"
+    And the response field "data.catatan_revisi" should be null
+
+  Scenario: Biodata tidak valid saat revisi ditolak
+    Given the RT head has requested a revision with note "Nomor KK salah"
+    When the resident resubmits the application with:
+      | field     | value                         |
+      | keperluan | Persyaratan administrasi bank |
+      | nomor_kk  | 12345                         |
+    Then the response status code should be 400
+    And the response field "error" should be "VALIDATION_ERROR"
+    And the application status in the database should be "perlu_revisi"
+
+  Scenario: Pengajuan yang tidak diminta revisi tidak bisa dikirim ulang
+    When the resident resubmits the application with:
+      | field     | value                         |
+      | keperluan | Mencoba mengubah tanpa revisi |
+    Then the response status code should be 409
+    And the response field "error" should be "INVALID_STATUS"
+    And the application status in the database should be "diajukan"
+
+  Scenario: Pengajuan hasil revisi dapat langsung disahkan Ketua RT
+    Given the RT head has requested a revision with note "Lengkapi keperluan"
+    When the resident resubmits the application with:
+      | field     | value                                      |
+      | keperluan | Persyaratan pembukaan rekening Bank Jatim  |
+    And the RT head signs the application with PIN "123456"
+    Then the response status code should be 200
+    And the response field "data.status" should be "selesai"
