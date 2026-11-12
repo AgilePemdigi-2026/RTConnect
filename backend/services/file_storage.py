@@ -155,7 +155,7 @@ def store_upload(upload, category):
             with Image.open(io.BytesIO(data)) as image:
                 image.verify()
                 image_format = image.format
-        except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as error:
+        except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError) as error:
             raise ValueError('The uploaded image is invalid.') from error
         expected_format = {'png': 'PNG', 'jpg': 'JPEG', 'jpeg': 'JPEG'}[extension]
         if image_format != expected_format:

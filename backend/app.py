@@ -115,4 +115,12 @@ app = create_app()
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     print(f"[*] Menjalankan RTConnect Backend di http://127.0.0.1:{port}")
-    app.run(host='0.0.0.0', port=port, debug=Config.APP_ENV == 'development')
+    # Reloader mode debug tidak boleh memantau folder library (site-packages) & __pycache__:
+    # impor pertama boto3 (upload PDF ke S3) / google-genai (asisten AI) menulis file .pyc,
+    # lalu server ter-restart DI TENGAH request -> aplikasi menerima "Kesalahan tidak terduga".
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=Config.APP_ENV == 'development',
+        exclude_patterns=['*site-packages*', '*dist-packages*', '*__pycache__*', '*.pyc'],
+    )

@@ -1,0 +1,66 @@
+@sprint2 @signing @letters
+Feature: [Sprint 2] Pengesahan Surat dengan PIN Keamanan dan Nomor Surat Unik
+  As a Ketua RT
+  I want to sign letters digitally using a secret PIN that issues a unique letter number and an official PDF
+  So that only I can legalise letters and every letter can be traced by its number
+
+  Background:
+    Given the RTConnect backend application is ready
+    And the resident "resident@example.test" and the RT head "rt@example.test" are logged in with password "LocalTestOnly#2026"
+    And the resident has a new "DOM" application with "digital" signature
+
+  Scenario: Tanda tangan digital dengan PIN benar menerbitkan nomor surat dan PDF
+    When the RT head signs the application with PIN "123456"
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response field "data.status" should be "selesai"
+    And the response field "data.nomor_surat_resmi" should match pattern "^[0-9]+/[0-9]+/[A-Z]+/DOM/[0-9]{3,}/[IVXLC]+/[0-9]{4}$"
+    And the application status in the database should be "selesai"
+
+  Scenario: Warga mengunduh PDF surat resmi yang sudah disahkan
+    Given the application has been signed digitally with PIN "123456"
+    When the resident downloads the letter PDF
+    Then the response status code should be 200
+    And the response content type should be "application/pdf"
+    And the downloaded file should be a valid PDF
+
+  Scenario: Nomor surat selalu unik dan berurutan
+    Given the application has been signed digitally with PIN "123456"
+    When the RT head signs a second new "DOM" application with PIN "123456"
+    Then the two official letter numbers should be different and sequential
+
+  Scenario: PIN salah ditolak dan sisa percobaan berkurang
+    When the RT head enters the wrong PIN "999999" 1 times
+    Then the response status code should be 401
+    And the response field "error" should be "INVALID_PIN"
+    And the response field "data.sisa_percobaan" should be "4"
+    And the application status in the database should be "diajukan"
+
+  Scenario: PIN dikunci setelah 5 kali salah berturut-turut
+    When the RT head enters the wrong PIN "999999" 5 times
+    Then the response status code should be 429
+    And the response field "error" should be "PIN_LOCKED"
+    And the application status in the database should be "diajukan"
+
+  Scenario: PIN yang bukan 6 digit angka ditolak
+    When the RT head signs the application with PIN "12ab"
+    Then the response status code should be 400
+    And the response field "error" should be "VALIDATION_ERROR"
+
+  Scenario: Surat yang sudah selesai tidak dapat disahkan ulang
+    Given the application has been signed digitally with PIN "123456"
+    When the RT head signs the application with PIN "123456"
+    Then the response status code should be 409
+    And the response field "error" should be "INVALID_STATUS"
+
+  Scenario: PDF belum tersedia sebelum surat disahkan
+    When the resident downloads the letter PDF
+    Then the response status code should be 404
+    And the response JSON should indicate failure
+
+  Scenario: Ketua RT mengonfirmasi surat bertanda tangan basah siap diambil
+    Given the resident has a new "KTP" application with "basah" signature
+    When the RT head confirms the physical signature
+    Then the response status code should be 200
+    And the response field "data.status" should be "siap_diambil"
+    And the application status in the database should be "siap_diambil"
