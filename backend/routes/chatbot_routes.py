@@ -1,9 +1,17 @@
+import json
+import re
 from flask import Blueprint, request, jsonify
 from database.db import query_all, query_one, execute, execute_returning, transaction
 from middleware.auth_middleware import jwt_required, roles_accepted
 from services.notification_service import add_notification
 from services.rag_service import search_knowledge_base
-from services.chatbot_rules import is_sensitive_credential_for_storage, mask_pii
+from services.chatbot_rules import (
+    is_sensitive_credential_for_storage,
+    konteks_pertanyaan,
+    mask_pii,
+    rujukan_konteks,
+    semua_topik,
+)
 from services.user_service import first_rt_id
 
 chatbot_bp = Blueprint('chatbot', __name__, url_prefix='/api/v1/chatbot')
@@ -48,8 +56,34 @@ def ask_chatbot():
         if existing['warga_id'] != user['user_id']:
             return jsonify({'success': False, 'message': 'Akses ditolak', 'data': None, 'error': 'FORBIDDEN'}), 403
 
-    # 1. Evaluasi keamanan & sanitasi sebelum penyimpanan pesan warga (Privacy P0/P1)
-    if is_sensitive_credential_for_storage(query_text):
+    # 1b. Ambil riwayat pesan warga sesi ini (tersanitasi) untuk konteks
+    # pertanyaan lanjutan. Dilakukan setelah cek kepemilikan sesi di atas.
+    riwayat = []
+    if session_id:
+        try:
+            riwayat_rows = query_all(
+                """SELECT isi_pesan FROM chatmessage
+                   WHERE chat_session_id = %s AND pengirim = 'warga'
+                   ORDER BY tanggal_kirim ASC, message_id ASC LIMIT 5""",
+                (session_id,),
+            )
+            riwayat = [
+                row['isi_pesan'] for row in (riwayat_rows or [])
+                if row.get('isi_pesan')
+                and '[Pesan disembunyikan oleh sistem' not in row['isi_pesan']
+            ]
+        except Exception:
+            riwayat = []
+    query_efektif = konteks_pertanyaan(query_text, riwayat)
+
+    # 1. Evaluasi keamanan & privasi pre-persistence dan sebelum panggilan eksternal
+    # Periksa baik kueri asli maupun kueri setelah penggabungan konteks
+    is_sensitive = (
+        is_sensitive_credential_for_storage(query_text)
+        or is_sensitive_credential_for_storage(query_efektif)
+    )
+
+    if is_sensitive:
         # Jangan simpan kredensial rahasia plaintext ke database; gunakan placeholder generik yang aman
         pesan_disimpan = "[Pesan disembunyikan oleh sistem karena memuat data rahasia/kredensial]"
     else:
@@ -62,8 +96,35 @@ def ask_chatbot():
         (session_id, pesan_disimpan)
     )
 
-    # 2. Find matching knowledge with lexical retrieval
-    rag_result = search_knowledge_base(query_text)
+    # 1c. Maksud belum jelas: rujukan tanpa riwayat bertopik -> satu klarifikasi
+    if (
+        not is_sensitive
+        and not semua_topik(query_text)
+        and rujukan_konteks(query_text)
+        and not semua_topik(query_efektif)
+    ):
+        return jsonify({
+            'success': True,
+            'message': 'Perlu klarifikasi',
+            'data': {
+                'session_id': session_id,
+                'is_escalated': True,
+                'answer': ('Maaf, saya belum paham maksud Anda. '
+                           'Topik administrasi apa yang ingin ditanyakan?'),
+                'citation': None,
+                'similarity_score': 0.0,
+                'status': 'PERTANYAAN_TIDAK_JELAS',
+                'source_id': None,
+                'base_score': 0.0,
+                'escalation_whatsapp_url': None,
+            },
+            'error': None,
+        }), 200
+
+    # 2. Find matching knowledge with semantic or lexical retrieval & Gemini synthesis
+    # Pertanyaan disanitasi (PII dimask) sebelum diteruskan ke embedding atau Gemini
+    sanitized_query_efektif = mask_pii(query_efektif)
+    rag_result = search_knowledge_base(sanitized_query_efektif, conversation_history=riwayat)
 
     # 3. Catat balasan sistem AI ke chatmessage; chunk sumber & skornya ke retrievallog
     escalated = rag_result['is_escalated']
@@ -103,7 +164,9 @@ def ask_chatbot():
             'status': rag_result.get('status'),
             'source_id': rag_result.get('source_id'),
             'base_score': rag_result.get('base_score'),
-            'escalation_whatsapp_url': rag_result['escalation_whatsapp_url']
+            'escalation_whatsapp_url': rag_result['escalation_whatsapp_url'],
+            'retrieval_mode': rag_result.get('retrieval_mode'),
+            'ai_generated': rag_result.get('ai_generated', False),
         },
         'error': None
     }), 200
@@ -159,3 +222,234 @@ def get_session_messages(session_id: int):
         'data': messages,
         'error': None
     }), 200
+
+
+# ============================================================================
+# SRS REQ-7: Pengelolaan Basis Pengetahuan oleh Ketua RT (Upload, Chunk, Embed)
+# ============================================================================
+
+def _chunk_text(text: str) -> list[str]:
+    """Pecah dokumen menjadi potongan-potongan bermakna (per aturan/paragraf)."""
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    chunks = []
+    current = []
+    for line in lines:
+        # Jika baris diawali penomoran aturan atau paragraf mandiri
+        if re.match(r'^\d+[\.\)]\s*', line) and current:
+            chunks.append(' '.join(current))
+            current = [line]
+        else:
+            current.append(line)
+            if sum(len(c) for c in current) > 350:
+                chunks.append(' '.join(current))
+                current = []
+    if current:
+        chunks.append(' '.join(current))
+    return chunks or [text.strip()]
+
+
+@chatbot_bp.route('/knowledge', methods=['GET'])
+@jwt_required
+@roles_accepted('rt')
+def get_knowledge_documents():
+    """Mengambil daftar dokumen basis pengetahuan (Khusus Ketua RT)."""
+    docs = query_all("""
+        SELECT k.knowledge_id, k.judul, k.kategori, k.sumber, k.uploaded_by,
+               k.tanggal_upload, k.updated_at,
+               COUNT(c.chunk_id) AS total_chunks
+        FROM knowledgebase k
+        LEFT JOIN knowledgechunk c ON k.knowledge_id = c.knowledge_id
+        GROUP BY k.knowledge_id, k.judul, k.kategori, k.sumber, k.uploaded_by,
+                 k.tanggal_upload, k.updated_at
+        ORDER BY k.knowledge_id DESC
+    """)
+    return jsonify({
+        'success': True,
+        'message': 'Daftar basis pengetahuan berhasil diambil',
+        'data': docs or [],
+        'error': None,
+    }), 200
+
+
+@chatbot_bp.route('/knowledge', methods=['POST'])
+@jwt_required
+@roles_accepted('rt')
+def upload_knowledge_document():
+    """Mengunggah dokumen basis pengetahuan baru, memecahnya menjadi potongan,
+    dan menghitung embedding jika embedding service aktif (SRS REQ-7).
+    """
+    user = request.current_user
+    data = request.get_json(silent=True) or {}
+
+    judul = str(data.get('judul') or '').strip()
+    kategori = str(data.get('kategori') or 'administrasi').strip()
+    isi_dokumen = str(data.get('isi_dokumen') or '').strip()
+    sumber = str(data.get('sumber') or 'SOP Resmi RT').strip()
+
+    if not judul or not isi_dokumen:
+        return jsonify({
+            'success': False,
+            'message': 'Judul dan isi dokumen wajib diisi',
+            'data': None,
+            'error': 'VALIDATION_ERROR',
+        }), 400
+
+    raw_chunks = _chunk_text(isi_dokumen)
+    from services.semantic_embedding_service import is_embedding_configured, generate_embedding
+
+    try:
+        with transaction() as cur:
+            cur.execute(
+                """INSERT INTO knowledgebase (judul, kategori, isi_dokumen, sumber, uploaded_by)
+                   VALUES (%s, %s, %s, %s, %s) RETURNING knowledge_id""",
+                (judul, kategori, isi_dokumen, sumber, user.get('user_id')),
+            )
+            kb_id = cur.fetchone()['knowledge_id']
+
+            total_embedded = 0
+            for idx, chunk_text in enumerate(raw_chunks, start=1):
+                vec = None
+                if is_embedding_configured():
+                    try:
+                        vec = json.dumps(generate_embedding(chunk_text))
+                        total_embedded += 1
+                    except Exception:
+                        vec = None
+
+                cur.execute(
+                    """INSERT INTO knowledgechunk (knowledge_id, urutan_chunk, isi_chunk, kata_kunci, embedding_vector)
+                       VALUES (%s, %s, %s, %s, %s)""",
+                    (kb_id, idx, chunk_text, judul, vec),
+                )
+
+        return jsonify({
+            'success': True,
+            'message': 'Dokumen basis pengetahuan berhasil disimpan dan diproses',
+            'data': {
+                'knowledge_id': kb_id,
+                'judul': judul,
+                'total_chunks': len(raw_chunks),
+                'total_embedded': total_embedded,
+                'embedding_enabled': is_embedding_configured(),
+            },
+            'error': None,
+        }), 201
+    except Exception as err:
+        return jsonify({
+            'success': False,
+            'message': f'Gagal menyimpan dokumen: {type(err).__name__}',
+            'data': None,
+            'error': 'DATABASE_ERROR',
+        }), 500
+
+
+@chatbot_bp.route('/knowledge/<int:knowledge_id>', methods=['PUT'])
+@jwt_required
+@roles_accepted('rt')
+def update_knowledge_document(knowledge_id: int):
+    """Memperbarui dokumen basis pengetahuan dan melakukan re-chunking (SRS REQ-7)."""
+    existing = query_one("SELECT knowledge_id FROM knowledgebase WHERE knowledge_id = %s", (knowledge_id,))
+    if not existing:
+        return jsonify({
+            'success': False,
+            'message': 'Dokumen tidak ditemukan',
+            'data': None,
+            'error': 'NOT_FOUND',
+        }), 404
+
+    data = request.get_json(silent=True) or {}
+    judul = str(data.get('judul') or '').strip()
+    kategori = str(data.get('kategori') or 'administrasi').strip()
+    isi_dokumen = str(data.get('isi_dokumen') or '').strip()
+    sumber = str(data.get('sumber') or 'SOP Resmi RT').strip()
+
+    if not judul or not isi_dokumen:
+        return jsonify({
+            'success': False,
+            'message': 'Judul dan isi dokumen wajib diisi',
+            'data': None,
+            'error': 'VALIDATION_ERROR',
+        }), 400
+
+    raw_chunks = _chunk_text(isi_dokumen)
+    from services.semantic_embedding_service import is_embedding_configured, generate_embedding
+
+    try:
+        with transaction() as cur:
+            cur.execute(
+                """UPDATE knowledgebase
+                   SET judul = %s, kategori = %s, isi_dokumen = %s, sumber = %s, updated_at = CURRENT_TIMESTAMP
+                   WHERE knowledge_id = %s""",
+                (judul, kategori, isi_dokumen, sumber, knowledge_id),
+            )
+            # Hapus chunk lama dan buat ulang
+            cur.execute("DELETE FROM knowledgechunk WHERE knowledge_id = %s", (knowledge_id,))
+
+            total_embedded = 0
+            for idx, chunk_text in enumerate(raw_chunks, start=1):
+                vec = None
+                if is_embedding_configured():
+                    try:
+                        vec = json.dumps(generate_embedding(chunk_text))
+                        total_embedded += 1
+                    except Exception:
+                        vec = None
+
+                cur.execute(
+                    """INSERT INTO knowledgechunk (knowledge_id, urutan_chunk, isi_chunk, kata_kunci, embedding_vector)
+                       VALUES (%s, %s, %s, %s, %s)""",
+                    (knowledge_id, idx, chunk_text, judul, vec),
+                )
+
+        return jsonify({
+            'success': True,
+            'message': 'Dokumen basis pengetahuan berhasil diperbarui',
+            'data': {
+                'knowledge_id': knowledge_id,
+                'judul': judul,
+                'total_chunks': len(raw_chunks),
+                'total_embedded': total_embedded,
+            },
+            'error': None,
+        }), 200
+    except Exception as err:
+        return jsonify({
+            'success': False,
+            'message': f'Gagal memperbarui dokumen: {type(err).__name__}',
+            'data': None,
+            'error': 'DATABASE_ERROR',
+        }), 500
+
+
+@chatbot_bp.route('/knowledge/<int:knowledge_id>', methods=['DELETE'])
+@jwt_required
+@roles_accepted('rt')
+def delete_knowledge_document(knowledge_id: int):
+    """Menghapus dokumen basis pengetahuan beserta seluruh potongannya (Khusus Ketua RT)."""
+    existing = query_one("SELECT knowledge_id FROM knowledgebase WHERE knowledge_id = %s", (knowledge_id,))
+    if not existing:
+        return jsonify({
+            'success': False,
+            'message': 'Dokumen tidak ditemukan',
+            'data': None,
+            'error': 'NOT_FOUND',
+        }), 404
+
+    try:
+        with transaction() as cur:
+            cur.execute("DELETE FROM knowledgechunk WHERE knowledge_id = %s", (knowledge_id,))
+            cur.execute("DELETE FROM knowledgebase WHERE knowledge_id = %s", (knowledge_id,))
+
+        return jsonify({
+            'success': True,
+            'message': 'Dokumen basis pengetahuan berhasil dihapus',
+            'data': {'knowledge_id': knowledge_id},
+            'error': None,
+        }), 200
+    except Exception as err:
+        return jsonify({
+            'success': False,
+            'message': f'Gagal menghapus dokumen: {type(err).__name__}',
+            'data': None,
+            'error': 'DATABASE_ERROR',
+        }), 500

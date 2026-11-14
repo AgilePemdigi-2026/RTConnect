@@ -79,6 +79,12 @@ class Config:
     GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-flash-latest')
     GEMINI_FALLBACK_MODELS = [m.strip() for m in os.getenv(
         'GEMINI_FALLBACK_MODELS', 'gemini-flash-latest,gemini-flash-lite-latest').split(',') if m.strip()]
+    TANYART_LLM_TIMEOUT = float(os.getenv('TANYART_LLM_TIMEOUT', '5.0'))
+
+    # Model Embedding untuk Pencarian Semantik TanyaRT (SRS: text-embedding-3-small)
+    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+    EMBEDDING_API_KEY = os.getenv('EMBEDDING_API_KEY', '') or os.getenv('OPENAI_API_KEY', '')
+    EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'text-embedding-3-small')
 
     # Alamat rumah Ketua RT (tempat pengambilan surat tanda tangan basah)
     RT_OFFICE_ADDRESS = os.getenv('RT_OFFICE_ADDRESS', 'Gunungsari Indah Blok YY No. 22')
