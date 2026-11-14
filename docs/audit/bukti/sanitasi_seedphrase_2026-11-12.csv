@@ -1,0 +1,23 @@
+﻿sep=,
+kasus,input,harapan,sebelum,sesudah,sensitif_storage,status
+F1-baru: pengantar panjang,"seed phrase: ini adalah cadangan untuk dompet digital saya, abandon ability able about abo…",True,False,True,True,PASS
+plain spasi,seed phrase: abandon ability able about above absent absorb abstract absurd abuse access a…,True,True,True,True,PASS
+koma,"seed phrase: abandon, ability, able, about, above, absent, absorb, abstract, absurd, abuse…",True,True,True,True,PASS
+edu lalu payload,Apa itu seed phrase dan bagaimana menjaganya? Recovery phrase saya: abandon ability able a…,True,True,True,True,PASS
+preposisi konteks,seed phrase untuk dompet saya: abandon ability able about above absent absorb abstract abs…,True,True,True,True,PASS
+variasi cadangan,seed phrase ini cadangan saya: abandon ability able about above absent absorb abstract abs…,True,True,True,True,PASS
+variasi wallet,recovery phrase untuk wallet saya abandon ability able about above absent absorb abstract …,True,True,True,True,PASS
+variasi digital,seed phrase untuk dompet digital saya abandon ability able about above absent absorb abstr…,True,True,True,True,PASS
+variasi kripto,recovery phrase untuk akun kripto saya: abandon ability able about above absent absorb abs…,True,True,True,True,PASS
+nomor urut,Kunci pemulihan: 1. apple 2. banana 3. cherry 4. dog 5. elephant 6. fox 7. grape 8. horse …,True,True,True,True,PASS
+tanda hubung,frasa pemulihan: abandon-ability-able-about-above-absent-absorb-abstract-absurd-abuse-acce…,True,True,True,True,PASS
+F2-baru (tugas): catat aman darurat,Seed phrase saya catat dengan aman untuk keadaan darurat: abandon ability able about above…,True,False,True,True,PASS
+F2-variasi susunan,seed phrase untuk keadaan darurat saya catat dengan aman: abandon ability able about above…,True,False,True,True,PASS
+F2-variasi catat-simpan,seed phrase saya simpan baik-baik untuk jaga-jaga: abandon ability able about above absent…,True,False,True,True,PASS
+F2-variasi pegang-darurat,recovery phrase tolong pegang baik-baik untuk kondisi darurat abandon ability able about a…,True,True,True,True,PASS
+kontrol edu ID,Apa itu seed phrase dan bagaimana cara menjaga keamanan dompet digital agar tetap aman set…,False,False,False,False,PASS
+kontrol edu EN,Explain seed phrase and how people should protect their recovery words when using hardware…,False,False,False,False,PASS
+kontrol edukatif-mirip F2 ID,Apakah seed phrase perlu dicatat dengan aman untuk keadaan darurat dan bagaimana cara menj…,False,False,False,False,PASS
+kontrol edukatif-mirip F2 EN,Should people write down their seed phrase safely for emergencies and how to keep it secur…,False,False,False,False,PASS
+kontrol umum,Bagaimana cara menjaga keamanan akun saya?,False,False,False,False,PASS
+kontrol KTP,Bagaimana mengurus KTP yang hilang di Surabaya?,False,False,False,False,PASS

@@ -704,7 +704,11 @@ class _LetterApplicationScreenState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  // Wrap: judul + badge turun ke baris baru di layar sempit (cegah overflow).
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Text(
                         title,
@@ -716,7 +720,6 @@ class _LetterApplicationScreenState
                         ),
                       ),
                       if (badge != null) ...[
-                        const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 6,

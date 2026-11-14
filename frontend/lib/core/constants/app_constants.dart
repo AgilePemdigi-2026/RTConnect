@@ -23,7 +23,20 @@ class AppConstants {
     if (_buildTimeBaseUrl.isNotEmpty) {
       return _buildTimeBaseUrl.replaceFirst(RegExp(r'/+$'), '');
     }
-    if (kIsWeb) return 'http://127.0.0.1:5000/api/v1';
+    if (kIsWeb) {
+      final host = Uri.base.host;
+      if (Uri.base.port == 3000) {
+        if (host.isNotEmpty && host != 'localhost' && host != '127.0.0.1') {
+          return 'http://$host:5000/api/v1';
+        }
+        return 'http://127.0.0.1:5000/api/v1';
+      }
+      final origin = Uri.base.origin;
+      if (origin.isNotEmpty && !origin.startsWith('file:')) {
+        return '$origin/api/v1';
+      }
+      return 'http://127.0.0.1:5000/api/v1';
+    }
     if (kDebugMode && defaultTargetPlatform == TargetPlatform.android) {
       return 'http://10.0.2.2:5000/api/v1';
     }

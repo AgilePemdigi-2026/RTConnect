@@ -12,6 +12,8 @@ import '../../features/auth/presentation/register_screen.dart';
 import '../../features/home/presentation/warga_home_screen.dart';
 import '../../features/home/presentation/rt_home_screen.dart';
 import '../../features/letters/presentation/letter_application_screen.dart';
+import '../../features/letters/presentation/ai_assistant_screen.dart';
+import '../../features/letters/presentation/letter_revision_screen.dart';
 import '../../features/letters/presentation/letter_history_screen.dart';
 import '../../features/letters/presentation/letter_detail_screen.dart';
 import '../../features/letters/presentation/rt_review_screen.dart';
@@ -88,7 +90,21 @@ final GoRouter appRouter = GoRouter(
       parentNavigatorKey: rootNavigatorKey,
       path: RouteNames.wargaPengajuanBaru,
       builder: (context, state) =>
+          const _AuthGate(child: AiAssistantScreen()),
+    ),
+    GoRoute(
+      parentNavigatorKey: rootNavigatorKey,
+      path: RouteNames.wargaPengajuanManual,
+      builder: (context, state) =>
           const _AuthGate(child: LetterApplicationScreen()),
+    ),
+    GoRoute(
+      parentNavigatorKey: rootNavigatorKey,
+      path: RouteNames.wargaPengajuanRevisi,
+      builder: (context, state) {
+        final id = int.tryParse(state.pathParameters['id'] ?? '0') ?? 0;
+        return _AuthGate(child: LetterRevisionScreen(applicationId: id));
+      },
     ),
     GoRoute(
       parentNavigatorKey: rootNavigatorKey,

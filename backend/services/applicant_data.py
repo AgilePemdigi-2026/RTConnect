@@ -26,6 +26,8 @@ FIELDS = {
     'keterangan_lain': ('keterangan_lain', 'Keterangan lain-lain'),
 }
 OPTIONAL = {'keterangan_lain'}
+# Field yang berbeda tiap surat: TIDAK diisi ulang dari pengajuan sebelumnya.
+PER_LETTER_FIELDS = ('tujuan', 'keterangan_lain')
 MAX_LENGTH = {'pekerjaan': 100, 'tempat_lahir': 100, 'kewarganegaraan': 50,
               'tujuan': 150, 'keterangan_lain': 255}
 

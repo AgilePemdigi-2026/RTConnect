@@ -10,8 +10,9 @@ from config import Config
 from database.db import query_all, query_one, execute_returning, transaction
 from middleware.auth_middleware import jwt_required, roles_accepted
 from services.ai_draft_service import generate_letter_draft
+from services.ai_fill_service import MAX_MESSAGE_LENGTH, suggest_application
 from services.applicant_data import (
-    SELECT_COLUMNS as APPLICANT_COLUMNS, columns_to_api, parse_applicant_data, to_api,
+    PER_LETTER_FIELDS, SELECT_COLUMNS as APPLICANT_COLUMNS, columns_to_api, parse_applicant_data, to_api,
 )
 from services.file_storage import read_bytes, store_bytes, store_upload
 from services.letter_number_service import generate_unique_letter_number
@@ -278,6 +279,39 @@ def get_application_detail(id: int):
         'error': None
     }), 200
 
+@letter_bp.route('/ai-fill', methods=['POST'])
+@jwt_required
+@roles_accepted('warga')
+def ai_fill_application():
+    """Asisten AI: isi formulir pengajuan dari cerita warga + data pengajuan terakhir.
+
+    Body: {"pesan": "Saya mau bikin surat pengantar SKCK buat melamar kerja di PT ABC"}
+    Hasilnya hanya usulan isian; warga tetap memeriksa lalu mengirim lewat /apply.
+    """
+    data = request.get_json(silent=True) or {}
+    pesan = str(data.get('pesan') or '').strip()
+    if len(pesan) < 5:
+        return jsonify({'success': False, 'message': 'Ceritakan surat yang kamu butuhkan (minimal 5 karakter)',
+                        'data': None, 'error': 'VALIDATION_ERROR'}), 400
+    if len(pesan) > MAX_MESSAGE_LENGTH:
+        return jsonify({'success': False, 'message': f'Cerita maksimal {MAX_MESSAGE_LENGTH} karakter',
+                        'data': None, 'error': 'VALIDATION_ERROR'}), 400
+
+    letter_types = query_all(
+        "SELECT j.jenis_surat_id, j.kode_surat, j.nama_jenis AS nama_surat "
+        "FROM jenissurat j WHERE j.is_aktif = TRUE ORDER BY j.jenis_surat_id"
+    )
+    stored = query_one(
+        f"""SELECT {APPLICANT_COLUMNS}
+            FROM pengajuansurat p
+            WHERE p.warga_id = %s AND p.pekerjaan IS NOT NULL
+            ORDER BY p.tanggal_pengajuan DESC, p.pengajuan_id DESC
+            LIMIT 1""",
+        (request.current_user['user_id'],)
+    )
+    result = suggest_application(pesan, letter_types, stored)
+    return jsonify({'success': True, 'message': result['pesan'], 'data': result, 'error': None}), 200
+
 @letter_bp.route('/my-last-data', methods=['GET'])
 @jwt_required
 @roles_accepted('warga')
@@ -291,10 +325,15 @@ def get_my_last_applicant_data():
             LIMIT 1""",
         (request.current_user['user_id'],)
     )
+    data = to_api(row) if row else None
+    if data:
+        # Biodata dipakai ulang; tujuan & keterangan lain diisi baru untuk tiap surat.
+        for field in PER_LETTER_FIELDS:
+            data[field] = None
     return jsonify({
         'success': True,
         'message': 'Data pengajuan terakhir berhasil diambil' if row else 'Belum ada pengajuan sebelumnya',
-        'data': to_api(row) if row else None,
+        'data': data,
         'error': None
     }), 200
 
@@ -311,6 +350,10 @@ def resubmit_application(id: int):
 
     if app_data['warga_id'] != user['user_id']:
         return jsonify({'success': False, 'message': 'Akses ditolak', 'data': None, 'error': 'FORBIDDEN'}), 403
+
+    # Hanya pengajuan yang diminta revisi oleh Ketua RT yang boleh dikirim ulang
+    if app_data['status'] != 'perlu_revisi':
+        return jsonify({'success': False, 'message': 'Pengajuan ini tidak sedang diminta revisi', 'data': None, 'error': 'INVALID_STATUS'}), 409
 
     if request.is_json:
         parsed_data = request.get_json(silent=True)
@@ -376,6 +419,10 @@ def submit_decision(id: int):
     app_data = get_pengajuan(id)
     if not app_data:
         return jsonify({'success': False, 'message': 'Pengajuan surat tidak ditemukan', 'data': None, 'error': 'NOT_FOUND'}), 404
+
+    # Keputusan hanya untuk pengajuan yang masih menunggu (bukan yang sudah selesai/ditolak/direvisi)
+    if app_data['status'] not in ('diajukan', 'disetujui'):
+        return jsonify({'success': False, 'message': 'Pengajuan ini sudah diproses dan tidak dapat diputuskan lagi', 'data': None, 'error': 'INVALID_STATUS'}), 409
 
     rt_user = request.current_user
 
@@ -588,6 +635,9 @@ def confirm_physical(id: int):
     app_data = get_pengajuan(id)
     if not app_data:
         return jsonify({'success': False, 'message': 'Pengajuan tidak ditemukan', 'data': None, 'error': 'NOT_FOUND'}), 404
+
+    if app_data['status'] not in ('diajukan', 'disetujui'):
+        return jsonify({'success': False, 'message': 'Pengajuan ini tidak dalam status yang dapat dikonfirmasi', 'data': None, 'error': 'INVALID_STATUS'}), 409
 
     rt_user = request.current_user
     with transaction() as cur:

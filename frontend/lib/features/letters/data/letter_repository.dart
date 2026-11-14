@@ -54,6 +54,17 @@ class LetterRepository {
     return data == null ? null : Map<String, dynamic>.from(data as Map);
   }
 
+  /// Asisten AI: isi formulir dari cerita warga (biodata tersimpan dipakai ulang).
+  Future<Map<String, dynamic>> aiFill(String pesan) async {
+    final response = await _apiClient.dio.post<Map<String, dynamic>>(
+      ApiEndpoints.aiFill,
+      data: {'pesan': pesan},
+      // Gemini bisa butuh lebih lama dari batas default 15 detik.
+      options: Options(receiveTimeout: const Duration(seconds: 90)),
+    );
+    return Map<String, dynamic>.from(response.data!['data'] as Map);
+  }
+
   Future<List<Map<String, dynamic>>> getMyApplications() async {
     final response = await _apiClient.dio.get<Map<String, dynamic>>(ApiEndpoints.myApplications);
     final data = response.data!['data'] as List;
@@ -71,10 +82,11 @@ class LetterRepository {
     return Map<String, dynamic>.from(response.data!['data'] as Map);
   }
 
-  Future<void> resubmitLetter(int id, String keperluan) async {
+  /// Kirim ulang surat yang direvisi. [dataPemohon] opsional: biodata yang diperbaiki/dilengkapi.
+  Future<void> resubmitLetter(int id, String keperluan, {Map<String, String>? dataPemohon}) async {
     await _apiClient.dio.put<Map<String, dynamic>>(
       ApiEndpoints.resubmitLetter(id),
-      data: {'keperluan': keperluan},
+      data: {'keperluan': keperluan, ...?dataPemohon},
     );
   }
 

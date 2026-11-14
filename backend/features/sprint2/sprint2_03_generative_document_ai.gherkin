@@ -1,0 +1,86 @@
+@sprint2 @generative-document @ai
+Feature: [Sprint 2] Generative Document dengan Asisten AI dan Biodata Tersimpan
+  As a resident
+  I want to describe my need in plain language and let the AI fill the application form
+  So that I do not have to re-type my biodata every time I request a letter
+
+  Background:
+    Given the RTConnect backend application is ready
+    And the resident "resident@example.test" and the RT head "rt@example.test" are logged in with password "LocalTestOnly#2026"
+    And the resident has a new "DOM" application with "digital" signature
+
+  Scenario: Draf surat dibuat otomatis dari template beserta biodata pemohon
+    When the resident opens the application detail
+    Then the response status code should be 200
+    And the response field "data.draf_ai_konten" should contain "Karyawan Swasta"
+    And the response field "data.draf_ai_konten" should contain "Surabaya"
+
+  Scenario: Biodata pengajuan terakhir tersimpan, tujuan surat tidak ikut terbawa
+    When the resident requests the last applicant data
+    Then the response status code should be 200
+    And the response field "data.pekerjaan" should be "Karyawan Swasta"
+    And the response field "data.nomor_kk" should be "3578080101950001"
+    And the response field "data.tujuan" should be null
+
+  Scenario: Asisten AI mengisi jenis surat dan keperluan dari cerita warga
+    Given the AI model will answer with:
+      | field              | value                                       |
+      | jenis_surat_kode   | SKCK                                        |
+      | keperluan          | Persyaratan melamar pekerjaan di PT Maju Jaya |
+      | tujuan             | Polrestabes Surabaya                        |
+      | pertanyaan_lanjutan | Mau tanda tangan digital atau basah?        |
+    When the resident asks the AI assistant "Saya mau bikin SKCK buat melamar kerja di PT Maju Jaya"
+    Then the response status code should be 200
+    And the response field "data.ai_digunakan" should be true
+    And the response field "data.jenis_surat.kode_surat" should be "SKCK"
+    And the response field "data.keperluan" should be "Persyaratan melamar pekerjaan di PT Maju Jaya"
+    And the response field "data.data_pemohon.tujuan" should be "Polrestabes Surabaya"
+    And the response field "data.sumber.tujuan" should be "ai"
+
+  Scenario: Biodata yang tidak disebut warga diisi dari data tersimpan
+    Given the AI model will answer with:
+      | field            | value                 |
+      | jenis_surat_kode | SKCK                  |
+      | keperluan        | Melamar kerja         |
+    When the resident asks the AI assistant "Saya mau SKCK untuk melamar kerja"
+    Then the response status code should be 200
+    And the response field "data.data_pemohon.pekerjaan" should be "Karyawan Swasta"
+    And the response field "data.sumber.pekerjaan" should be "tersimpan"
+    And the response field "data.data_pemohon.agama" should be "Islam"
+    And the response field "data.data_pemohon.nomor_kk" should be "3578080101950001"
+    And the response field "data.kurang" should be a list
+
+  Scenario: Data sensitif tidak dikirim ke AI
+    Given the AI model will answer with:
+      | field            | value |
+      | jenis_surat_kode | DOM   |
+    When the resident asks the AI assistant "Saya butuh surat domisili, NIK saya 3578080101950001 nomor HP 081234567890"
+    Then the response status code should be 200
+    And the AI should have been called
+    And the AI should not have received "3578080101950001"
+    And the AI should not have received "081234567890"
+
+  Scenario: Jawaban AI yang tidak valid diabaikan
+    Given the AI model will answer with:
+      | field            | value      |
+      | jenis_surat_kode | TIDAKADA   |
+      | jenis_kelamin    | Robot      |
+      | tanggal_lahir    | 2999-01-01 |
+    When the resident asks the AI assistant "Saya mau bikin surat yang aneh"
+    Then the response status code should be 200
+    And the response field "data.jenis_surat" should be null
+    And the response field "data.data_pemohon.jenis_kelamin" should be "Laki-laki"
+    And the response field "data.data_pemohon.tanggal_lahir" should be "1995-08-17"
+
+  Scenario: Formulir tetap terisi dari data tersimpan saat AI tidak tersedia
+    Given the AI model is unavailable
+    When the resident asks the AI assistant "Saya mau surat pengantar SKCK"
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response field "data.ai_digunakan" should be false
+    And the response field "data.data_pemohon.pekerjaan" should be "Karyawan Swasta"
+
+  Scenario: Cerita yang terlalu pendek ditolak
+    When the resident asks the AI assistant "SK"
+    Then the response status code should be 400
+    And the response field "error" should be "VALIDATION_ERROR"

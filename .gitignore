@@ -44,6 +44,7 @@ backend/uploads/signatures/*
 # ==========================================
 backend/chatbot/cache/
 backend/chatbot/hasil_uji*.csv
+backend/test-reports/
 
 # ==========================================
 # Academic Documents, SRS, & UTS (Non-Runtime)

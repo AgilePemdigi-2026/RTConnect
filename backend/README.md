@@ -88,4 +88,8 @@ python run_bdd.py --tags=@sprint1
 python run_bdd.py --tags=@issue-9
 python run_bdd.py --tags=@issue-10
 python run_bdd.py --tags=@issue-11
+
+# Sprint 2: tinjau pengajuan RT, PIN & nomor surat, generative document AI, revisi biodata
+python run_bdd.py features/sprint2
+python run_bdd.py --tags=@sprint2
 ```

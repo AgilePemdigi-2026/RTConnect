@@ -123,8 +123,20 @@ def run_api_tests():
     assert res_last.status_code == 200
     last = res_last.get_json()['data']
     assert last['pekerjaan'] == 'Karyawan Swasta' and last['tanggal_lahir'] == '1995-08-17'
-    assert last['tujuan'] == 'Kantor Kelurahan Kedurus'
+    assert last['tujuan'] is None and last['keterangan_lain'] is None  # diisi baru tiap surat
     print("[PASS] 7b. Isi Otomatis Data Pemohon: OK -> data pengajuan terakhir dikembalikan")
+
+    # 7c. Asisten AI pengisi formulir (jalan dengan atau tanpa Gemini; tanpa AI memakai data tersimpan)
+    assert client.post('/api/v1/letters/ai-fill', headers=warga_headers, json={'pesan': 'hi'}).status_code == 400
+    res_ai = client.post('/api/v1/letters/ai-fill', headers=warga_headers, json={
+        'pesan': 'Saya mau bikin surat pengantar SKCK buat melamar kerja di PT ABC'
+    })
+    assert res_ai.status_code == 200, res_ai.data
+    ai_data = res_ai.get_json()['data']
+    assert ai_data['data_pemohon']['agama'] == 'Islam'          # selalu dari data tersimpan, bukan AI
+    assert ai_data['data_pemohon']['nomor_kk'] == PEMOHON['nomor_kk']
+    print(f"[PASS] 7c. Asisten AI Isi Formulir: OK -> ai_digunakan={ai_data['ai_digunakan']}, "
+          f"jenis={ai_data['jenis_surat'] and ai_data['jenis_surat']['kode_surat']}, kurang={ai_data['kurang']}")
 
     # 8. Riwayat Pengajuan Milik Warga (API-006)
     res_my_apps = client.get('/api/v1/letters/my-applications', headers=warga_headers)

@@ -10,9 +10,12 @@ from services.chatbot_rules import (
     aksi_dokumen,
     aksi_pertanyaan,
     batasan,
+    cek_keamanan,
     coverage_score,
     is_local_context_question,
     is_rt_surat_question,
+    normalisasi,
+    semua_topik,
     topik_dokumen,
     topik_pertanyaan,
 )
@@ -22,12 +25,13 @@ INDONESIAN_STOPWORDS = {
     'yang', 'di', 'dan', 'ini', 'itu', 'ke', 'dari', 'untuk', 'pada', 'dengan',
     'adalah', 'sebagai', 'dalam', 'bisa', 'dapat', 'oleh', 'ada', 'akan', 'atau',
     'saya', 'kami', 'kita', 'mereka', 'dia', 'apakah', 'bagaimana', 'apa', 'siapa',
-    'berapa', 'kapan', 'dimana', 'kenapa', 'mengapa'
+    'berapa', 'kapan', 'dimana', 'kenapa', 'mengapa', 'mana', 'ya'
 }
 
-# Boost kecil untuk dokumen yang topik/aksinya cocok dengan pertanyaan.
+# Boost terkalibrasi untuk dokumen yang topik/aksinya cocok dengan pertanyaan.
 TOPIK_BOOST = 0.10
-AKSI_BOOST = 0.05
+AKSI_BOOST = 0.15
+ACTION_CONFLICT_PENALTY = -0.25
 LOCAL_RT_BOOST = 0.20
 
 # Batas bawah skor mentah agar dokumen dengan topik cocok tetapi sangat lemah
@@ -51,7 +55,8 @@ def simple_stem(word: str) -> str:
 
 def tokenize(text: str) -> list[str]:
     """Tokenisasi teks bahasa Indonesia menjadi token bersih tanpa tanda baca."""
-    cleaned = re.sub(r'[^\w\s]', ' ', text.lower())
+    norm_text = normalisasi(text)
+    cleaned = re.sub(r'[^\w\s]', ' ', norm_text)
     words = cleaned.split()
     return [w for w in words if len(w) > 1 and w not in INDONESIAN_STOPWORDS]
 
@@ -70,18 +75,10 @@ def compute_cosine_similarity(vec1: dict, vec2: dict) -> float:
     return float(numerator) / denominator
 
 
-def _whatsapp_url(query: str, include_query: bool = True):
+def _whatsapp_url():
+    """Bentuk URL WhatsApp eskalasi dengan nomor resmi Ketua RT tanpa menyisipkan kueri pengguna."""
     if not Config.RT_WHATSAPP_NUMBER:
         return None
-    if include_query:
-        message = (
-            f"Halo {Config.RT_NAME}, saya warga {Config.RT_AREA} "
-            f"ingin menanyakan perihal: {query}"
-        )
-        return (
-            f"https://wa.me/{Config.RT_WHATSAPP_NUMBER}"
-            f"?text={urllib.parse.quote(message)}"
-        )
     return f"https://wa.me/{Config.RT_WHATSAPP_NUMBER}"
 
 
@@ -112,7 +109,7 @@ MESSAGES = {
 }
 
 
-def _fallback_result(query, status, best_score=0.0, include_query=True):
+def _fallback_result(query, status, best_score=0.0):
     message = MESSAGES.get(status, MESSAGES['PERLU_VERIFIKASI'])
     if status not in ('RAHASIA', 'PERTANYAAN_TIDAK_JELAS'):
         message += _contact_suffix()
@@ -125,9 +122,7 @@ def _fallback_result(query, status, best_score=0.0, include_query=True):
         'top_chunk_id': None,
         'source_id': None,
         'status': status,
-        'escalation_whatsapp_url': _whatsapp_url(
-            query, include_query=include_query
-        ),
+        'escalation_whatsapp_url': _whatsapp_url(),
     }
 
 
@@ -164,15 +159,22 @@ def search_chunks(query, chunks):
 
     Dipakai oleh API (setelah query DB) dan oleh evaluasi runtime.
     """
+    sec_guard = cek_keamanan(query)
+    if sec_guard:
+        return _fallback_result(query, sec_guard)
+
+    all_topics = semua_topik(query)
+    if len(all_topics) > 1:
+        # Multi-topik: jika kueri mencakup > 1 topik independen, minta klarifikasi / eskalasi
+        return _fallback_result(query, 'PERLU_VERIFIKASI')
+
     query_tokens = tokenize(query)
     if not query_tokens:
-        return _fallback_result(
-            query, 'PERTANYAAN_TIDAK_JELAS', include_query=False
-        )
+        return _fallback_result(query, 'PERTANYAAN_TIDAK_JELAS')
 
     q_stems = [simple_stem(w) for w in query_tokens]
     query_vec = Counter(query_tokens)
-    intent_topic = topik_pertanyaan(query)
+    intent_topic = all_topics[0] if all_topics else None
     intent_action = aksi_pertanyaan(query)
     local_context = is_local_context_question(query)
     rt_surat = is_rt_surat_question(query)
@@ -219,6 +221,12 @@ def search_chunks(query, chunks):
         boost = TOPIK_BOOST if topic_match else 0.0
         if action_match:
             boost += AKSI_BOOST
+        elif intent_action and doc_action:
+            # Penalti konflik aksi hanya untuk pasangan aksi yang bertentangan langsung (hilang vs rusak)
+            if (intent_action == 'hilang' and doc_action == 'rusak') or (
+                intent_action == 'rusak' and doc_action == 'hilang'
+            ):
+                boost += ACTION_CONFLICT_PENALTY
         if local_context and is_local:
             boost += LOCAL_RT_BOOST
 
@@ -278,12 +286,13 @@ def search_chunks(query, chunks):
         best_coverage=best['coverage'],
     )
     if guard:
-        return _fallback_result(
-            query,
-            guard,
-            best_score=best['base_score'],
-            include_query=(guard != 'RAHASIA'),
-        )
+        return _fallback_result(query, guard, best_score=best['base_score'])
+
+    # Untuk dokumen domisili (RTC-019 kontrakan vs RTC-020 verifikasi alamat),
+    # pertanyaan umum tanpa aksi spesifik tidak boleh dijawab sepihak.
+    doc_id = best['chunk'].get('kode_sumber')
+    if doc_id in ('RTC-019', 'RTC-020') and not best['action_match']:
+        return _fallback_result(query, 'PERLU_VERIFIKASI', best_score=best['base_score'])
 
     topic_answer = (
         best['topic_match'] and best['base_score'] >= MIN_TOPIC_SCORE

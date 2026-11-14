@@ -33,6 +33,7 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
     super.dispose();
   }
 
+  // ignore: unused_element
   void _showResidentRevisionDialog(String currentKeperluan) {
     _resubmitController.text = currentKeperluan;
     showDialog<void>(
@@ -653,7 +654,8 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
           if (!isRT) ...[
             const SizedBox(height: AppSpacing.md),
             ElevatedButton.icon(
-              onPressed: () => _showResidentRevisionDialog(currentKeperluan),
+              // Halaman perbaikan lengkap: keperluan, tujuan, dan biodata pemohon.
+              onPressed: () => context.push('/warga/pengajuan/revisi/${widget.applicationId}'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFEA580C),
                 foregroundColor: Colors.white,
