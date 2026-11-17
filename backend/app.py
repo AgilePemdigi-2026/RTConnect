@@ -4,7 +4,7 @@ import sys
 # Ensure backend directory is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.exceptions import RequestEntityTooLarge
 from config import Config
@@ -34,7 +34,26 @@ def create_app():
     app.register_blueprint(chatbot_bp)
     app.register_blueprint(notification_bp)
 
-    @app.route('/')
+    # Flutter Web hasil build (dipakai saat deploy satu container di Coolify).
+    # Bila folder tidak ada (pengembangan lokal), '/' tetap menampilkan info API.
+    web_dir = os.getenv('WEB_BUILD_DIR', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web'))
+    has_web = os.path.isfile(os.path.join(web_dir, 'index.html'))
+
+    if has_web:
+        @app.route('/', defaults={'path': ''})
+        @app.route('/<path:path>')
+        def flutter_web(path):
+            if path.startswith('api/'):
+                return jsonify({'success': False, 'message': 'Endpoint tidak ditemukan',
+                                'data': None, 'error': 'NOT_FOUND'}), 404
+            full_path = os.path.join(web_dir, path)
+            if path and os.path.isfile(full_path):
+                return send_from_directory(web_dir, path)
+            response = send_from_directory(web_dir, 'index.html')
+            response.headers['Cache-Control'] = 'no-cache'
+            return response
+
+    @app.route('/api')
     def root():
         return jsonify({
             'success': True,
@@ -49,6 +68,9 @@ def create_app():
                 'health': '/api/v1/health'
             }
         }), 200
+
+    if not has_web:
+        app.add_url_rule('/', 'root_info', root)
 
     @app.route('/api/v1/health', methods=['GET'])
     def health_check():

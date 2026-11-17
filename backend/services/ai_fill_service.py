@@ -17,6 +17,7 @@ import json
 import logging
 import re
 import time
+import urllib.request
 
 from config import Config
 
@@ -100,17 +101,71 @@ def mask_sensitive(text: str) -> str:
 
 
 def _call_gemini(message: str, letter_types: list) -> dict:
-    """Panggil Gemini dan kembalikan dict hasil ekstraksi. Raise bila gagal."""
+    """Panggil model AI dan kembalikan dict hasil ekstraksi. Raise bila gagal.
+
+    LLM_BASE_URL diisi  -> server LLM OpenAI-compatible (mis. Ollama server kampus).
+    Selain itu           -> Gemini API (GEMINI_API_KEY).
+    """
+    if Config.LLM_BASE_URL:
+        return _call_openai_compatible(message, letter_types)
+    return _call_gemini_api(message, letter_types)
+
+
+def _build_user_prompt(message: str, letter_types: list) -> str:
+    daftar = '\n'.join(f"- {t['kode_surat']}: {t['nama_surat']}" for t in letter_types)
+    return (f'Daftar jenis surat:\n{daftar}\n\n'
+            f'{build_format_instruction([t["kode_surat"] for t in letter_types])}\n\n'
+            f'Cerita warga:\n"""{message}"""')
+
+
+def _parse_json_answer(text: str) -> dict:
+    text = (text or '{}').strip()
+    if text.startswith('```'):
+        text = text.strip('`').removeprefix('json').strip()
+    # Model reasoning (mis. qwen3) kadang menulis <think>...</think> sebelum JSON
+    if '</think>' in text:
+        text = text.split('</think>', 1)[1].strip()
+    start, end = text.find('{'), text.rfind('}')
+    if start != -1 and end > start:
+        text = text[start:end + 1]
+    result = json.loads(text)
+    if not isinstance(result, dict):
+        raise ValueError('Format jawaban AI tidak valid')
+    return result
+
+
+def _call_openai_compatible(message: str, letter_types: list) -> dict:
+    """Server LLM OpenAI-compatible (Ollama). Memakai urllib, tanpa library tambahan."""
+    body = json.dumps({
+        'model': Config.LLM_MODEL,
+        'messages': [
+            {'role': 'system', 'content': SYSTEM_PROMPT},
+            {'role': 'user', 'content': _build_user_prompt(message, letter_types)},
+        ],
+        'temperature': 0.2,
+        'response_format': {'type': 'json_object'},
+        'stream': False,
+    }).encode('utf-8')
+    request = urllib.request.Request(
+        Config.LLM_BASE_URL.rstrip('/') + '/chat/completions',
+        data=body,
+        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {Config.LLM_API_KEY or "ollama"}'},
+        method='POST',
+    )
+    with urllib.request.urlopen(request, timeout=Config.LLM_TIMEOUT_SECONDS) as response:
+        payload = json.loads(response.read().decode('utf-8'))
+    return _parse_json_answer(payload['choices'][0]['message']['content'])
+
+
+def _call_gemini_api(message: str, letter_types: list) -> dict:
+    """Panggil Gemini API dan kembalikan dict hasil ekstraksi. Raise bila gagal."""
     if genai is None:
         raise RuntimeError('Library google-genai belum terpasang (pip install -r requirements.txt)')
 
-    daftar = '\n'.join(f"- {t['kode_surat']}: {t['nama_surat']}" for t in letter_types)
     # Dipanggil langsung (tanpa thread / HttpOptions timeout). Bila server sibuk
     # (503/429/500/504), ulangi sekali lalu coba model cadangan.
     client = genai.Client(api_key=Config.GEMINI_API_KEY)
-    contents = (f'Daftar jenis surat:\n{daftar}\n\n'
-                f'{build_format_instruction([t["kode_surat"] for t in letter_types])}\n\n'
-                f'Cerita warga:\n"""{message}"""')
+    contents = _build_user_prompt(message, letter_types)
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
         response_mime_type='application/json',
@@ -128,13 +183,7 @@ def _call_gemini(message: str, letter_types: list) -> dict:
                 raise
             logger.warning('Gemini %s sibuk (%s), mencoba lagi...', model, code)
             time.sleep(1.5)
-    text = (response.text or '{}').strip()
-    if text.startswith('```'):
-        text = text.strip('`').removeprefix('json').strip()
-    result = json.loads(text)
-    if not isinstance(result, dict):
-        raise ValueError('Format jawaban AI tidak valid')
-    return result
+    return _parse_json_answer(response.text)
 
 
 def _clean(value, max_len=150):
@@ -186,8 +235,8 @@ def suggest_application(message: str, letter_types: list, stored: dict | None) -
 
     ai = None
     ai_error = None
-    if not Config.GEMINI_API_KEY:
-        ai_error = 'GEMINI_API_KEY belum diatur'
+    if not (Config.GEMINI_API_KEY or Config.LLM_BASE_URL):
+        ai_error = 'GEMINI_API_KEY / LLM_BASE_URL belum diatur'
     else:
         try:
             ai = _clean_ai_result(_call_gemini(mask_sensitive(message), letter_types), letter_types)

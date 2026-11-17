@@ -76,6 +76,12 @@ class Config:
     RT_KABUPATEN = os.getenv('RT_KABUPATEN', 'Kota Surabaya')
     # Asisten AI pengisi formulir (Gemini). Kosongkan GEMINI_API_KEY untuk menonaktifkan.
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+    # Alternatif: server LLM OpenAI-compatible (Ollama server kampus). Bila LLM_BASE_URL diisi,
+    # asisten AI surat memakai server ini, bukan Gemini. Alamat harus diakhiri /v1.
+    LLM_BASE_URL = os.getenv('LLM_BASE_URL', '').strip()
+    LLM_API_KEY = os.getenv('LLM_API_KEY', 'ollama')
+    LLM_MODEL = os.getenv('LLM_MODEL', 'gemma4:12b')
+    LLM_TIMEOUT_SECONDS = float(os.getenv('LLM_TIMEOUT_SECONDS', '120'))
     GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-flash-latest')
     GEMINI_FALLBACK_MODELS = [m.strip() for m in os.getenv(
         'GEMINI_FALLBACK_MODELS', 'gemini-flash-latest,gemini-flash-lite-latest').split(',') if m.strip()]

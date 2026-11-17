@@ -17,4 +17,4 @@ RUN mkdir -p /app/uploads/signatures /app/uploads/attachments /app/uploads/gener
 
 USER rtconnect
 EXPOSE 5000
-CMD ["sh", "-c", "exec gunicorn --workers ${WEB_CONCURRENCY:-2} --threads 4 --timeout 60 --bind 0.0.0.0:${PORT:-5000} app:app"]
+CMD ["sh", "-c", "exec gunicorn --workers ${WEB_CONCURRENCY:-2} --threads 4 --timeout ${GUNICORN_TIMEOUT:-180} --bind 0.0.0.0:${PORT:-5000} app:app"]
