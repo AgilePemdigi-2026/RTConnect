@@ -76,9 +76,21 @@ class Config:
     RT_KABUPATEN = os.getenv('RT_KABUPATEN', 'Kota Surabaya')
     # Asisten AI pengisi formulir (Gemini). Kosongkan GEMINI_API_KEY untuk menonaktifkan.
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+    # Alternatif: server LLM OpenAI-compatible (Ollama server kampus). Bila LLM_BASE_URL diisi,
+    # asisten AI surat memakai server ini, bukan Gemini. Alamat harus diakhiri /v1.
+    LLM_BASE_URL = os.getenv('LLM_BASE_URL', '').strip()
+    LLM_API_KEY = os.getenv('LLM_API_KEY', 'ollama')
+    LLM_MODEL = os.getenv('LLM_MODEL', 'gemma4:12b')
+    LLM_TIMEOUT_SECONDS = float(os.getenv('LLM_TIMEOUT_SECONDS', '120'))
     GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-flash-latest')
     GEMINI_FALLBACK_MODELS = [m.strip() for m in os.getenv(
         'GEMINI_FALLBACK_MODELS', 'gemini-flash-latest,gemini-flash-lite-latest').split(',') if m.strip()]
+    TANYART_LLM_TIMEOUT = float(os.getenv('TANYART_LLM_TIMEOUT', '5.0'))
+
+    # Model Embedding untuk Pencarian Semantik TanyaRT (SRS: text-embedding-3-small)
+    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+    EMBEDDING_API_KEY = os.getenv('EMBEDDING_API_KEY', '') or os.getenv('OPENAI_API_KEY', '')
+    EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'text-embedding-3-small')
 
     # Alamat rumah Ketua RT (tempat pengambilan surat tanda tangan basah)
     RT_OFFICE_ADDRESS = os.getenv('RT_OFFICE_ADDRESS', 'Gunungsari Indah Blok YY No. 22')
