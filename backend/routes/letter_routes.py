@@ -683,3 +683,91 @@ def download_letter_pdf(id: int):
 
     filename = PurePosixPath(storage_key).name
     return send_file(BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True, download_name=filename)
+
+
+
+# ---------------------------------------------------------------------------
+# Tautan unduhan berumur pendek (untuk tombol "Unduh" di layar pratinjau PDF).
+# Aplikasi meminta tautan lewat endpoint yang butuh login, lalu membukanya di
+# browser / pengelola unduhan HP. Tautan ditandatangani, terikat ke satu
+# pengajuan, dan kedaluwarsa dalam DOWNLOAD_LINK_TTL_SECONDS detik.
+# Blok ini mandiri: semua import yang dibutuhkan ada di bawah ini.
+# ---------------------------------------------------------------------------
+from io import BytesIO
+from pathlib import PurePosixPath
+
+from flask import jsonify, request, send_file
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
+from config import Config
+from database.db import query_one
+from middleware.auth_middleware import jwt_required
+from services.file_storage import read_bytes
+
+DOWNLOAD_LINK_TTL_SECONDS = 120
+
+
+def _download_serializer():
+    return URLSafeTimedSerializer(Config.JWT_SECRET, salt='letter-download-link')
+
+
+@letter_bp.route('/<int:id>/download-link', methods=['GET'])
+@jwt_required
+def create_download_link(id: int):
+    """Buat tautan unduh PDF berumur pendek. Hak akses sama dengan unduhan biasa."""
+    user = request.current_user
+    app_data = query_one("SELECT pengajuan_id, warga_id FROM pengajuansurat WHERE pengajuan_id = %s", (id,))
+    if not app_data:
+        return jsonify({'success': False, 'message': 'Pengajuan surat tidak ditemukan', 'data': None, 'error': 'NOT_FOUND'}), 404
+
+    if user['role'] == 'warga' and app_data['warga_id'] != user['user_id']:
+        return jsonify({'success': False, 'message': 'Akses ditolak', 'data': None, 'error': 'FORBIDDEN'}), 403
+
+    sf = query_one("SELECT file_pdf_path FROM suratfinal WHERE pengajuan_id = %s", (id,))
+    if not sf or not sf['file_pdf_path']:
+        return jsonify({
+            'success': False,
+            'message': 'Surat belum disahkan oleh Ketua RT, jadi PDF belum tersedia',
+            'data': None,
+            'error': 'NOT_FOUND'
+        }), 404
+
+    token = _download_serializer().dumps({'p': id})
+    return jsonify({
+        'success': True,
+        'message': 'Tautan unduhan dibuat',
+        'data': {
+            'download_path': f'/letters/download/{token}',
+            'expires_in': DOWNLOAD_LINK_TTL_SECONDS,
+            'filename': PurePosixPath(sf['file_pdf_path']).name,
+        },
+        'error': None
+    }), 200
+
+
+@letter_bp.route('/download/<token>', methods=['GET'])
+def download_by_link(token: str):
+    """Unduh PDF memakai tautan bertanda tangan (tanpa header Authorization)."""
+    try:
+        payload = _download_serializer().loads(token, max_age=DOWNLOAD_LINK_TTL_SECONDS)
+        pengajuan_id = int(payload['p'])
+    except SignatureExpired:
+        return jsonify({'success': False, 'message': 'Tautan unduhan sudah kedaluwarsa. Buka lagi dari aplikasi.', 'data': None, 'error': 'LINK_EXPIRED'}), 410
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return jsonify({'success': False, 'message': 'Tautan unduhan tidak valid', 'data': None, 'error': 'INVALID_LINK'}), 400
+
+    sf = query_one("SELECT file_pdf_path FROM suratfinal WHERE pengajuan_id = %s", (pengajuan_id,))
+    if not sf or not sf['file_pdf_path']:
+        return jsonify({'success': False, 'message': 'Dokumen PDF surat belum tersedia', 'data': None, 'error': 'NOT_FOUND'}), 404
+
+    try:
+        pdf_bytes = read_bytes(sf['file_pdf_path'])
+    except FileNotFoundError:
+        return jsonify({'success': False, 'message': 'File fisik PDF tidak ditemukan di server', 'data': None, 'error': 'FILE_NOT_FOUND'}), 404
+
+    response = send_file(
+        BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True,
+        download_name=PurePosixPath(sf['file_pdf_path']).name,
+    )
+    response.headers['Cache-Control'] = 'no-store'
+    return response
