@@ -22,6 +22,7 @@ class ApiEndpoints {
   static String signDigital(int id) => '/letters/$id/sign-digital'; // API-011 (Image Overlay)
   static String confirmPhysical(int id) => '/letters/$id/confirm-physical'; // API-012
   static String downloadLetter(int id) => '/letters/$id/download'; // API-013
+  static String downloadLetterLink(int id) => '/letters/$id/download-link'; // API-016
 
   // Chatbot & Notifications
   static const String chatbotQuery = '/chatbot/query'; // API-014
