@@ -181,7 +181,7 @@ def seed_database(include_demo_users=None):
             'fasum',
             f'1. Iuran kas kebersihan dan keamanan {Config.RT_AREA} dibayarkan paling lambat tanggal 10 setiap bulannya.\n'
             f'2. Penggunaan balai warga di {Config.RT_AREA} untuk hajatan atau acara warga wajib melapor kepada Ketua RT minimal 7 hari sebelumnya.\n'
-            f'3. Kerja bakti saluran air dan kebersihan {Config.RT_AREA} dilaksanakan setiap hari Minggu pertama awal bulan.'
+            f'3. {Config.KERJA_BAKTI_SCHEDULE["rule_text"]}'
         )
     ]
 

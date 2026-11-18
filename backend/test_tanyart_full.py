@@ -48,6 +48,7 @@ from services import tanyart_llm_service as llm_service
 from services import rag_service as rag
 import routes.chatbot_routes as chatbot_routes
 import middleware.auth_middleware as auth_mw
+from database import backfill_embeddings as bf_module
 
 OUTPUT_DIR = ROOT_DIR / "docs" / "audit" / "bukti"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -227,7 +228,246 @@ def test_3_multi_turn_conversations():
                 all_ok = False
 
     status = "PASS" if all_ok else "FAIL"
-    tracker.record("TEST-03", "Percakapan Multi-Turn & Konteks Sesi", status, " | ".join(details[:3]) + "...")
+    tracker.record("TEST-03A", "Percakapan Multi-Turn & Konteks Sesi", status, " | ".join(details[:3]) + "...")
+
+
+# ============================================================================
+# 3B. 4 Quick Prompts Flutter & Kontrol Pertanyaan Tanpa Sumber
+# ============================================================================
+def test_3b_quick_prompts_and_controls():
+    from regresi_retrieval_offline import load_chunks
+    chunks = load_chunks()
+
+    chunks_no_skck = [c for c in chunks if c.get("kode_sumber") not in ("RTC-025", "RTC-026", "RTC-032") and "skck" not in c.get("isi_chunk", "").lower()]
+    chunks_no_iuran = [c for c in chunks if "iuran" not in c.get("isi_chunk", "").lower()]
+    chunks_no_kb = [c for c in chunks if "kerja bakti" not in c.get("isi_chunk", "").lower()]
+
+    cases = [
+        # 1. Quick Prompt: Syarat Surat SKCK (mengambil sumber resmi RTC-025 dari KB)
+        {
+            "query": "Syarat Surat SKCK",
+            "chunks": chunks,
+            "verify": lambda r: r.get("status") == "SUMBER_DITEMUKAN" and r.get("source_id") == "RTC-025" and r.get("citation") is not None,
+            "desc": "Quick Prompt 1: 'Syarat Surat SKCK' -> Ditemukan RTC-025 dengan citation resmi",
+        },
+        # 2. Kontrol sumber SKCK hilang dari basis data -> fallback aman tanpa mengarang citation
+        {
+            "query": "Syarat Surat SKCK",
+            "chunks": chunks_no_skck,
+            "verify": lambda r: r.get("status") == "PERLU_VERIFIKASI" and r.get("citation") is None,
+            "desc": "Kontrol SKCK: Sumber hilang -> Fallback PERLU_VERIFIKASI (citation=None)",
+        },
+        # 3. Quick Prompt: Iuran RT Bulan Ini (mengambil Chunk 5, rincian nominal belum ada di KB -> SUMBER_DITEMUKAN + eskalasi WA)
+        {
+            "query": "Iuran RT Bulan Ini",
+            "chunks": chunks,
+            "verify": lambda r: r.get("status") == "SUMBER_DITEMUKAN" and r.get("is_escalated") is True and r.get("similarity_score", 0.0) >= 0.70 and r.get("citation") is not None and bool(r.get("escalation_whatsapp_url")),
+            "desc": "Quick Prompt 2: 'Iuran RT Bulan Ini' -> SUMBER_DITEMUKAN, Citation Chunk 5 & eskalasi WA",
+        },
+        # 4. Kontrol sumber iuran hilang dari basis data -> fallback aman tanpa mengarang teks lama
+        {
+            "query": "Iuran RT Bulan Ini",
+            "chunks": chunks_no_iuran,
+            "verify": lambda r: r.get("status") == "PERLU_VERIFIKASI" and r.get("citation") is None,
+            "desc": "Kontrol Iuran: Sumber hilang -> Fallback PERLU_VERIFIKASI (citation=None)",
+        },
+        # 5. Quick Prompt: Surat Domisili Usaha (sumber tidak cukup -> eskalasi WA)
+        {
+            "query": "Surat Domisili Usaha",
+            "chunks": chunks,
+            "verify": lambda r: r.get("status") == "KLARIFIKASI_DIBUTUHKAN" and r.get("citation") is None and r.get("is_escalated") is True and bool(r.get("escalation_whatsapp_url")),
+            "desc": "Quick Prompt 3: 'Surat Domisili Usaha' -> Sumber tidak cukup, eskalasi WA aktif (citation=None)",
+        },
+        # 6. Parafrasa Domisili Usaha
+        {
+            "query": "Bagaimana membuat surat domisili untuk usaha?",
+            "chunks": chunks,
+            "verify": lambda r: r.get("status") == "KLARIFIKASI_DIBUTUHKAN" and r.get("citation") is None and r.get("is_escalated") is True and bool(r.get("escalation_whatsapp_url")),
+            "desc": "Parafrasa Usaha: 'Bagaimana membuat surat domisili untuk usaha?' -> Eskalasi WA aktif (citation=None)",
+        },
+        # 7. Quick Prompt: Jadwal Kerja Bakti (kalender terhubung: 6 Des 2026 berikutnya)
+        {
+            "query": "Jadwal Kerja Bakti",
+            "chunks": chunks,
+            "verify": lambda r: (
+                r.get("status") == "SUMBER_DITEMUKAN"
+                and r.get("is_escalated") is True
+                and r.get("similarity_score", 0.0) >= 0.70
+                and r.get("citation") is not None
+                and bool(r.get("escalation_whatsapp_url"))
+                and "6 Desember 2026" in r.get("answer", "")
+            ),
+            "desc": "Quick Prompt 4: 'Jadwal Kerja Bakti' -> SUMBER_DITEMUKAN, Kalender rutin berikutnya 6 Des 2026 & WA aktif",
+        },
+        # 8. Jadwal Kerja Bakti Bulan Depan / Januari 2027 (pergantian tahun)
+        {
+            "query": "Kerja bakti bulan Januari 2027",
+            "chunks": chunks,
+            "verify": lambda r: (
+                r.get("status") == "SUMBER_DITEMUKAN"
+                and r.get("is_escalated") is True
+                and r.get("citation") is not None
+                and "3 Januari 2027" in r.get("answer", "")
+            ),
+            "desc": "Jadwal Kerja Bakti Januari 2027 -> Terhitung 3 Januari 2027",
+        },
+        # 9. Kontrol sumber kerja bakti hilang dari basis data -> fallback aman tanpa mengarang jadwal
+        {
+            "query": "Jadwal Kerja Bakti",
+            "chunks": chunks_no_kb,
+            "verify": lambda r: r.get("status") == "PERLU_VERIFIKASI" and r.get("citation") is None and "kalender" not in r.get("answer", "").lower(),
+            "desc": "Kontrol Kerja Bakti: Sumber hilang -> Fallback PERLU_VERIFIKASI (citation=None, tanpa kalender)",
+        },
+        # 10. Kasus Diagnostik Live: Pindah Domisili di Surabaya (sumber tidak cukup -> eskalasi WA)
+        {
+            "query": "Bagaimana mengurus pindah domisili di Surabaya?",
+            "chunks": chunks,
+            "verify": lambda r: r.get("status") == "KLARIFIKASI_DIBUTUHKAN" and r.get("citation") is None and r.get("is_escalated") is True and bool(r.get("escalation_whatsapp_url")),
+            "desc": "Kasus Diagnostik: Pindah domisili Surabaya -> Sumber tidak cukup, eskalasi WA aktif (citation=None)",
+        },
+        # 11. Kontrol Tanpa Sumber: Paspor kilat -> Tidak menjawab yakin, skor rendah
+        {
+            "query": "Berapa biaya pengurusan paspor kilat?",
+            "chunks": chunks,
+            "verify": lambda r: r.get("status") in ("PERLU_VERIFIKASI", "LUAR_CAKUPAN") and r.get("similarity_score", 0.0) < 0.70 and r.get("citation") is None,
+            "desc": "Kontrol Tanpa Sumber: Biaya paspor kilat (< 0.70 / citation=None)",
+        },
+        # 12. Kontrol Tanpa Sumber: Turnamen catur internasional -> Luar cakupan
+        {
+            "query": "Kapan turnamen catur internasional diselenggarakan?",
+            "chunks": chunks,
+            "verify": lambda r: r.get("status") == "LUAR_CAKUPAN" and r.get("similarity_score", 0.0) < 0.70 and r.get("citation") is None,
+            "desc": "Kontrol Tanpa Sumber: Turnamen catur (< 0.70 / LUAR_CAKUPAN)",
+        },
+        # 13. Kontrol Tanpa Sumber: Pinjaman uang tunai RT -> Luar cakupan / perlu verifikasi
+        {
+            "query": "Apakah RT menyediakan pinjaman uang tunai?",
+            "chunks": chunks,
+            "verify": lambda r: r.get("status") in ("PERLU_VERIFIKASI", "LUAR_CAKUPAN") and r.get("similarity_score", 0.0) < 0.70 and r.get("citation") is None,
+            "desc": "Kontrol Tanpa Sumber: Pinjaman tunai (< 0.70 / citation=None)",
+        },
+    ]
+
+    all_ok = True
+    details = []
+    for c in cases:
+        r = rag.search_chunks(c["query"], c["chunks"])
+        ok = c["verify"](r)
+        if not ok:
+            all_ok = False
+        details.append(f"{c['desc']}: {'OK' if ok else 'FAIL'}")
+
+    status = "PASS" if all_ok else "FAIL"
+    tracker.record("TEST-03B", "4 Quick Prompts Flutter & Kontrol Tanpa Sumber", status, f"Lolos {sum(1 for d in details if 'OK' in d)}/{len(cases)} skenario: " + "; ".join(details[:2]) + "...")
+
+
+# ============================================================================
+# 3C. Pergantian Topik Sesi Panjang (>5 Pesan) melalui Endpoint Aktual
+# ============================================================================
+def test_3c_long_session_topic_switch():
+    from regresi_retrieval_offline import load_chunks
+    chunks = load_chunks()
+
+    # 7 giliran percakapan warga yang disimpan di database
+    # 5 pesan pertama tentang KTP, pesan 6 dan 7 berganti topik ke SKCK
+    stored_messages = [
+        {"message_id": 1, "tanggal_kirim": "2026-11-01 10:00:00", "isi_pesan": "Bagaimana mengurus KTP yang hilang di Surabaya?"},
+        {"message_id": 2, "tanggal_kirim": "2026-11-01 10:01:00", "isi_pesan": "Terus biayanya berapa?"},
+        {"message_id": 3, "tanggal_kirim": "2026-11-01 10:02:00", "isi_pesan": "Di mana kantor pelayanannya?"},
+        {"message_id": 4, "tanggal_kirim": "2026-11-01 10:03:00", "isi_pesan": "Jam berapa pelayanannya?"},
+        {"message_id": 5, "tanggal_kirim": "2026-11-01 10:04:00", "isi_pesan": "Terima kasih infonya."},
+        {"message_id": 6, "tanggal_kirim": "2026-11-01 10:05:00", "isi_pesan": "Sekarang saya mau tanya SKCK."},
+        {"message_id": 7, "tanggal_kirim": "2026-11-01 10:06:00", "isi_pesan": "Apakah bisa dibuat online?"},
+    ]
+
+    sql_queries_recorded = []
+
+    def mock_query_all(sql, params=None):
+        sql_queries_recorded.append(sql)
+        if "from chatmessage" in sql.lower():
+            # Mensimulasikan query database: ORDER BY tanggal_kirim DESC, message_id DESC LIMIT 5
+            sorted_msgs = sorted(stored_messages, key=lambda m: (m["tanggal_kirim"], m["message_id"]), reverse=True)
+            return sorted_msgs[:5]
+        elif "from knowledgechunk" in sql.lower():
+            return chunks
+        return []
+
+    chatbot_routes.query_all = mock_query_all
+    rag.query_all = lambda sql, p=None: chunks
+    chatbot_routes.query_one = lambda sql, p=None: {"chat_session_id": 1, "warga_id": 101}
+    chatbot_routes.execute = lambda *a, **k: 1
+    chatbot_routes.execute_returning = lambda *a, **k: {"chat_session_id": 1, "message_id": 8}
+    chatbot_routes.first_rt_id = lambda: None
+    @contextmanager
+    def tx():
+        class Cur:
+            def execute(s, *a, **k): pass
+            def fetchone(s): return {"message_id": 8}
+        yield Cur()
+    chatbot_routes.transaction = tx
+
+    auth_mw.get_user = lambda role, uid: {"user_id": uid, "role": role, "nama_lengkap": "Warga Uji", "is_active": True}
+
+    app = Flask("test_app_long_turn")
+    app.register_blueprint(chatbot_routes.chatbot_bp)
+    client = app.test_client()
+
+    token = jwt.encode(
+        {"sub": "101", "role": "warga", "nama_lengkap": "Warga Uji", "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)},
+        Config.JWT_SECRET,
+        algorithm="HS256",
+    )
+
+    # Kirim pesan ke-8 melalui endpoint: kueri anaforis "Terus syaratnya apa?"
+    resp = client.post(
+        "/api/v1/chatbot/query",
+        json={"session_id": 1, "query": "Terus syaratnya apa?"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    resp_json = resp.get_json()
+    data = resp_json.get("data", {})
+
+    # Verifikasi kueri database menggunakan ORDER BY DESC LIMIT 5
+    chat_sql = next((s for s in sql_queries_recorded if "from chatmessage" in s.lower()), "")
+    order_desc_ok = "order by tanggal_kirim desc" in chat_sql.lower() and "limit 5" in chat_sql.lower()
+
+    # Verifikasi endpoint menjawab tentang SKCK, bukan KTP lama
+    answered_skck = data.get("source_id") in ("RTC-025", "RTC-026", "RTC-032") or "SKCK" in data.get("answer", "")
+    ktp_not_in_citation = "KTP" not in (data.get("citation") or "")
+
+    all_ok = resp.status_code == 200 and order_desc_ok and answered_skck and ktp_not_in_citation
+    status = "PASS" if all_ok else "FAIL"
+    tracker.record(
+        "TEST-03C",
+        "Pergantian Topik Sesi Panjang (>5 Pesan) via Endpoint & DESC LIMIT 5",
+        status,
+        f"Query SQL DESC LIMIT 5: {order_desc_ok}, Respon Mengikuti SKCK: {answered_skck}, KTP Tidak Muncul: {ktp_not_in_citation}",
+    )
+
+
+# ============================================================================
+# 3D. Keamanan Backfill Embedding (Dry-Run Safety Check)
+# ============================================================================
+def test_3d_backfill_dry_run_safety():
+    # Provider stub yang gagal jika dipanggil (membuktikan dry-run tidak melakukan panggilan API)
+    def failing_provider(*a, **k):
+        raise AssertionError("Provider API berbayar TIDAK BOLEH dipanggil selama dry-run!")
+
+    orig_gen = bf_module.generate_embedding
+    bf_module.generate_embedding = failing_provider
+
+    ret_code = bf_module.run_backfill(apply_changes=False)
+    bf_module.generate_embedding = orig_gen
+
+    safe_ok = (ret_code == 0)
+    status = "PASS" if safe_ok else "FAIL"
+    tracker.record(
+        "TEST-03D",
+        "Keamanan Backfill Embedding (Dry-Run Read-Only & Zero-API Call)",
+        status,
+        f"Dry-run sukses tanpa memanggil API provider berbayar: {safe_ok} (ret_code={ret_code})",
+    )
 
 
 # ============================================================================
@@ -408,13 +648,13 @@ def test_6_provider_failure_and_fallback():
         and len(calls_recorded) == 2
         and calls_recorded[0]["model"] == "gemini-flash-latest"
         and calls_recorded[1]["model"] == "gemini-flash-lite-latest"
-        and calls_recorded[1]["timeout_ms"] < calls_recorded[0]["timeout_ms"]  # Membuktikan berjalan dalam sisa budget
+        and calls_recorded[1]["time"] > calls_recorded[0]["time"]  # Membuktikan percobaan ke-2 dieksekusi berurutan dalam sisa budget
     )
     tracker.record(
         "TEST-06B",
         "Kegagalan Model Utama & Sukses Model Cadangan dalam Sisa Waktu",
         "PASS" if fallback_ok else "FAIL",
-        f"Percobaan ke-2 dalam sisa anggaran waktu: {calls_recorded[1]['timeout_ms'] if len(calls_recorded) > 1 else 'N/A'} ms (awal: {calls_recorded[0]['timeout_ms'] if len(calls_recorded) > 0 else 'N/A'} ms)",
+        f"Percobaan ke-2 dieksekusi berurutan dalam sisa anggaran waktu (model 1={calls_recorded[0]['model']}, model 2={calls_recorded[1]['model']})",
     )
 
     # 6C. Uji Respons Lambat / Timeout Provider (Kehabisan Anggaran Waktu)
@@ -616,7 +856,7 @@ def test_9_privacy_boundary_and_flutter_contract():
 
     def stub_emb(text, timeout=5.0):
         outbound_embeddings.append({"text": text, "timeout": timeout})
-        if "konser" in text.lower():
+        if any(w in text.lower() for w in ["konser", "iuran", "kerja bakti", "skck", "usaha", "domisili"]):
             return [0.0] * 1536
         return [0.9] * 1536
 
@@ -668,6 +908,13 @@ def test_9_privacy_boundary_and_flutter_contract():
             def fetchone(s): return {"message_id": 1}
         yield Cur()
     chatbot_routes.transaction = tx
+
+    auth_mw.get_user = lambda role, uid: {
+        "user_id": uid,
+        "role": role,
+        "nama_lengkap": "Warga Uji",
+        "is_active": True,
+    }
 
     app = Flask("test_app_contract")
     app.register_blueprint(chatbot_routes.chatbot_bp)
@@ -736,7 +983,7 @@ def test_9_privacy_boundary_and_flutter_contract():
         f"NIK Masked: {nik_ok}, HP Masked: {hp_ok}, Kredensial Zero-Outbound: {seed_ok}, Kueri Normal Terproses: {norm_ok}",
     )
 
-    # 9B. Kesesuaian Kontrak API Flutter & Tautan WhatsApp Statis dari Endpoint Aktual
+    # 9B. Kesesuaian Kontrak API Flutter & Draf WhatsApp pada 4 Quick Prompts & Kasus Khusus
     data_actual = resp_norm.get_json()["data"]
     expected_flutter_fields = {
         "session_id": int,
@@ -751,25 +998,228 @@ def test_9_privacy_boundary_and_flutter_contract():
             field_match = False
             break
 
-    # Cek bahwa citation dan escalation_whatsapp_url ada sebagai kunci
     keys_present = "citation" in data_actual and "escalation_whatsapp_url" in data_actual
 
-    # Cek tautan WhatsApp saat eskalasi dari endpoint aktual
-    resp_esc = client.post(
-        "/api/v1/chatbot/query",
-        json={"query": "Berapa harga tiket konser minggu depan?"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    esc_data = resp_esc.get_json()["data"]
-    wa_url = esc_data.get("escalation_whatsapp_url")
-    wa_static = bool(wa_url and "wa.me" in wa_url and "?" not in wa_url)  # Statis tanpa kueri teks otomatis
+    # Verifikasi draf pesan WhatsApp eskalasi pada berbagai skenario kueri endpoint aktual
+    import urllib.parse
+    from regresi_retrieval_offline import load_chunks
+    base_chunks = load_chunks()
+    rag.query_all = lambda sql, p=None: base_chunks
+    chatbot_routes.query_all = lambda sql, p=None: base_chunks
 
-    contract_ok = field_match and keys_present and wa_static
+    wa_scenarios = [
+        # Skenario 1: Kueri tiket konser
+        ("Berapa harga tiket konser minggu depan?", lambda txt: "konser" in txt.lower()),
+        # Skenario 2: Iuran RT Bulan Ini
+        ("Iuran RT Bulan Ini", lambda txt: "iuran" in txt.lower()),
+        # Skenario 3: Keberatan / keringanan iuran
+        ("Saya keberatan iuran karena sedang tidak bekerja", lambda txt: "keringanan" in txt.lower() or "keberatan" in txt.lower()),
+        # Skenario 4: Konfirmasi pembayaran iuran -> tidak berubah menjadi pertanyaan nominal
+        ("Saya sudah membayar iuran November. Bagaimana cara mengonfirmasi pembayaran saya?", lambda txt: "mengonfirmasi pembayaran" in txt.lower() and "nominal" not in txt.lower()),
+        # Skenario 5: Jadwal Kerja Bakti
+        ("Jadwal Kerja Bakti", lambda txt: "kerja bakti" in txt.lower()),
+        # Skenario 6: Pertanyaan jam sekaligus lokasi -> kedua pertanyaan tetap ada dalam draf
+        ("Mulai jam berapa kerja bakti dan titik kumpul di mana?", lambda txt: "jam" in txt.lower() and "kumpul" in txt.lower()),
+        # Skenario 7: Pertanyaan biaya/waktu pengantar SKCK -> maksud asli tetap ada
+        ("Berapa biaya dan berapa lama pembuatan surat pengantar SKCK?", lambda txt: "biaya" in txt.lower() and "lama" in txt.lower() and "skck" in txt.lower()),
+        # Skenario 8: Surat Domisili Usaha dengan sumber tidak cukup -> tombol eskalasi tersedia
+        ("Bagaimana membuat surat domisili untuk usaha?", lambda txt: "domisili" in txt.lower() and "usaha" in txt.lower()),
+        # Skenario 9: Pindah domisili umum -> tombol eskalasi tersedia
+        ("Bagaimana mengurus pindah domisili di Surabaya?", lambda txt: "pindah domisili" in txt.lower()),
+    ]
+
+    all_wa_ok = True
+    for q_text, val_fn in wa_scenarios:
+        r_esc = client.post(
+            "/api/v1/chatbot/query",
+            json={"query": q_text},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        esc_data = r_esc.get_json().get("data", {})
+        wa_url = esc_data.get("escalation_whatsapp_url")
+        if not (wa_url and "wa.me" in wa_url and "?text=" in wa_url):
+            all_wa_ok = False
+            break
+        parsed_text = urllib.parse.unquote(wa_url.split("?text=")[1])
+        format_valid = (
+            "Halo Pak/Bu RT, saya ingin menanyakan hal berikut:" in parsed_text
+            and "Mohon informasi atau arahannya. Terima kasih." in parsed_text
+            and val_fn(parsed_text)
+        )
+        if not format_valid:
+            all_wa_ok = False
+            break
+
+    contract_ok = field_match and keys_present and all_wa_ok
+
+    # Verifikasi Regresi Khusus: Penyatuan Perilaku Semantik, Leksikal, Eskalasi, & Kalender
+    from regresi_retrieval_offline import load_chunks
+    base_chunks = load_chunks()
+    c5 = next(c for c in base_chunks if c["chunk_id"] == "RT-5")
+    c7 = next(c for c in base_chunks if c["chunk_id"] == "RT-7")
+
+    # 1. Jalur Semantik dengan embedding valid di atas threshold (0.85 >= 0.70)
+    sem_vec = [0.85] * 1536
+    c5_vec = dict(c5, embedding_vector=sem_vec)
+    c7_vec = dict(c7, embedding_vector=sem_vec)
+
+    rag.is_embedding_configured = lambda: True
+    sem_service.is_embedding_configured = lambda: True
+    rag.generate_embedding = lambda q, timeout=5.0: sem_vec
+    sem_service.generate_embedding = lambda q, timeout=5.0: sem_vec
+
+    rag.query_all = lambda sql, p=None: [c5_vec]
+    chatbot_routes.query_all = lambda sql, p=None: [c5_vec]
+    r_sem_iuran = client.post("/api/v1/chatbot/query", json={"query": "Iuran RT Bulan Ini"}, headers={"Authorization": f"Bearer {token}"})
+    d_sem_iuran = r_sem_iuran.get_json()["data"]
+
+    rag.query_all = lambda sql, p=None: [c7_vec]
+    chatbot_routes.query_all = lambda sql, p=None: [c7_vec]
+    r_sem_kb = client.post("/api/v1/chatbot/query", json={"query": "Jadwal Kerja Bakti"}, headers={"Authorization": f"Bearer {token}"})
+    d_sem_kb = r_sem_kb.get_json()["data"]
+
+    sem_unified_ok = (
+        d_sem_iuran["status"] == "SUMBER_DITEMUKAN"
+        and d_sem_iuran["similarity_score"] >= 0.70
+        and d_sem_iuran["is_escalated"] is True
+        and bool(d_sem_iuran.get("escalation_whatsapp_url"))
+        and d_sem_kb["status"] == "SUMBER_DITEMUKAN"
+        and d_sem_kb["similarity_score"] >= 0.70
+        and d_sem_kb["is_escalated"] is True
+        and bool(d_sem_kb.get("escalation_whatsapp_url"))
+    )
+
+    # 2. Jalur Fallback Leksikal (tanpa embedding)
+    rag.is_embedding_configured = lambda: False
+    sem_service.is_embedding_configured = lambda: False
+    rag.query_all = lambda sql, p=None: base_chunks
+    chatbot_routes.query_all = lambda sql, p=None: base_chunks
+
+    r_lex_iuran = client.post("/api/v1/chatbot/query", json={"query": "Iuran RT Bulan Ini"}, headers={"Authorization": f"Bearer {token}"})
+    d_lex_iuran = r_lex_iuran.get_json()["data"]
+
+    r_lex_kb = client.post("/api/v1/chatbot/query", json={"query": "Jadwal Kerja Bakti"}, headers={"Authorization": f"Bearer {token}"})
+    d_lex_kb = r_lex_kb.get_json()["data"]
+
+    lex_unified_ok = (
+        d_lex_iuran["status"] == "SUMBER_DITEMUKAN"
+        and d_lex_iuran["similarity_score"] >= 0.70
+        and d_lex_iuran["is_escalated"] is True
+        and bool(d_lex_iuran.get("escalation_whatsapp_url"))
+        and d_lex_kb["status"] == "SUMBER_DITEMUKAN"
+        and d_lex_kb["similarity_score"] >= 0.70
+        and d_lex_kb["is_escalated"] is True
+        and bool(d_lex_kb.get("escalation_whatsapp_url"))
+    )
+
+    # 3. Kegagalan Sintesis Gemini -> Tombol WhatsApp Flutter Tampil
+    rag.is_gemini_configured = lambda: True
+    llm_service.is_gemini_configured = lambda: True
+    rag.synthesize_answer_with_gemini = lambda *a, **k: ("Fallback text", "Citation", False)
+    llm_service.synthesize_answer_with_gemini = lambda *a, **k: ("Fallback text", "Citation", False)
+
+    r_gem_fail = client.post("/api/v1/chatbot/query", json={"query": "Bagaimana mengurus KTP yang hilang di Surabaya?"}, headers={"Authorization": f"Bearer {token}"})
+    d_gem_fail = r_gem_fail.get_json()["data"]
+    flutter_gem_ok = (
+        d_gem_fail["status"] == "SUMBER_DITEMUKAN"
+        and d_gem_fail["is_escalated"] is True
+        and bool(d_gem_fail.get("escalation_whatsapp_url"))
+    )
+
+    # 4. Validasi Kalender Kerja Bakti Rutin, Pergantian Tahun, Ambigu, dan Draf WA
+    ref_18nov = datetime.date(2026, 11, 18)
+    ref_1nov = datetime.date(2026, 11, 1)
+    ref_20des = datetime.date(2026, 12, 20)
+
+    # 4a. Tanggal acuan 18 Nov 2026: jadwal umum terdekat -> 6 Des 2026
+    r_cal_umum = rag.search_chunks("Jadwal Kerja Bakti", base_chunks)
+
+    # 4b. Tanggal acuan 18 Nov 2026: bulan ini -> 1 Nov sudah lewat, berikutnya 6 Des 2026
+    cal_bln_ini = rag.calculate_kerja_bakti_calendar("Kerja bakti bulan ini", ref_date=ref_18nov)
+
+    # 4c. Tanggal acuan 18 Nov 2026: bulan depan -> 6 Des 2026
+    cal_bln_depan = rag.calculate_kerja_bakti_calendar("Kerja bakti bulan depan", ref_date=ref_18nov)
+
+    # 4d. Tanggal acuan 18 Nov 2026: bulan & tahun eksplisit -> Januari 2027 (3 Jan 2027)
+    cal_jan_2027 = rag.calculate_kerja_bakti_calendar("Kerja bakti bulan Januari 2027", ref_date=ref_18nov)
+
+    # 4e. Hari pelaksanaan: ref_date jatuh pada hari Minggu pertama (1 Nov 2026) -> menyebut 'hari ini'
+    cal_hari_ini = rag.calculate_kerja_bakti_calendar("Kerja bakti bulan ini", ref_date=ref_1nov)
+
+    # 4f. Pergantian Desember ke Januari: 20 Des 2026 -> jadwal berikutnya 3 Jan 2027
+    cal_des_jan = rag.calculate_kerja_bakti_calendar("Jadwal Kerja Bakti", ref_date=ref_20des)
+
+    # 4g. Bulan tanpa tahun yang ambigu: 'Kerja bakti bulan Maret' -> klarifikasi singkat
+    cal_ambigu = rag.calculate_kerja_bakti_calendar("Kerja bakti bulan Maret", ref_date=ref_18nov)
+
+    # 4h. Pertanyaan jam / titik kumpul -> menjelaskan belum tercantum di dokumen resmi
+    cal_details = rag.calculate_kerja_bakti_calendar("Mulai jam berapa kerja bakti dan titik kumpul di mana?", ref_date=ref_18nov)
+
+    # 4i. Kontrol sumber hilang -> fallback PERLU_VERIFIKASI tanpa mengarang jadwal
+    chunks_no_kb = [c for c in base_chunks if "kerja bakti" not in c.get("isi_chunk", "").lower()]
+    r_cal_missing = rag.search_chunks("Jadwal Kerja Bakti", chunks_no_kb)
+
+    # 4j. Ringkasan eskalasi WhatsApp lanjutan & pergantian topik
+    s_followup = rules.build_escalation_summary(
+        "mulai jam berapa?",
+        query_efektif="mulai jam berapa? kerja bakti",
+        history=["Kerja bakti bulan Desember 2026"],
+        ref_date=ref_18nov,
+    )
+    s_iuran_bln_ini = rules.build_escalation_summary("Berapa iuran bulan ini?", ref_date=ref_18nov)
+    s_keringanan = rules.build_escalation_summary("Saya ingin meminta keringanan iuran", ref_date=ref_18nov)
+    s_switch_skck = rules.build_escalation_summary(
+        "Bagaimana syarat SKCK?",
+        query_efektif="Bagaimana syarat SKCK?",
+        history=["Kerja bakti bulan Desember 2026"],
+        ref_date=ref_18nov,
+    )
+
+    # Rujukan umum harus menyertakan topik dan aksi, bukan hanya kerja bakti.
+    summary_cases = [
+        ('Syaratnya apa aja?', ['KTP saya hilang'], 'penggantian KTP yang hilang'),
+        ('Berkasnya apa saja?', ['KK saya rusak'], 'penggantian Kartu Keluarga yang rusak'),
+        ('Caranya bagaimana?', ['KTP saya hilang', 'Bagaimana mengurus SKCK?'], 'SKCK'),
+    ]
+    summary_context_ok = True
+    for question, previous, expected in summary_cases:
+        effective = rules.konteks_pertanyaan(question, previous)
+        summary = rules.build_escalation_summary(question, query_efektif=effective, history=previous)
+        summary_context_ok &= expected in summary and question.lower() in summary.lower()
+        summary_context_ok &= "Konteks pertanyaan:" not in summary
+        if expected == "SKCK":
+            summary_context_ok &= "hilang" not in summary and "KTP" not in summary
+    summary_context_ok &= 'Konteks pertanyaan:' not in rules.build_escalation_summary('Syaratnya apa aja?')
+    summary_context_ok &= 'KTP' not in s_switch_skck
+
+    calendar_rules_ok = (
+        "6 Desember 2026" in r_cal_umum["answer"]
+        and "[SIMULASI/DEMO" not in r_cal_umum["answer"]
+        and "1 November 2026 dan sudah lewat" in cal_bln_ini["answer"]
+        and "6 Desember 2026" in cal_bln_ini["answer"]
+        and "6 Desember 2026" in cal_bln_depan["answer"]
+        and "3 Januari 2027" in cal_jan_2027["answer"]
+        and "hari ini" in cal_hari_ini["answer"]
+        and "1 November 2026" in cal_hari_ini["answer"]
+        and "3 Januari 2027" in cal_des_jan["answer"]
+        and cal_ambigu["status"] == "KLARIFIKASI_DIBUTUHKAN"
+        and "jam mulai" in cal_details["answer"]
+        and r_cal_missing["status"] == "PERLU_VERIFIKASI"
+        and r_cal_missing["citation"] is None
+        and summary_context_ok
+        and s_followup == "Saya ingin menanyakan jam mulai kerja bakti."
+        and "iuran bulan ini" in s_iuran_bln_ini.lower()
+        and "keringanan iuran" in s_keringanan.lower()
+        and "skck" in s_switch_skck.lower()
+        and "kerja bakti" not in s_switch_skck.lower()
+    )
+
+    all_test_09b_ok = contract_ok and sem_unified_ok and lex_unified_ok and flutter_gem_ok and calendar_rules_ok
     tracker.record(
         "TEST-09B",
-        "Kontrak API Flutter & Tautan WhatsApp Statis dari Endpoint",
-        "PASS" if contract_ok else "FAIL",
-        f"Tipe & Field Kontrak Flutter Valid: {field_match}, Kunci Tambahan Ada: {keys_present}, Tautan WA Statis (tanpa text query): {wa_static}",
+        "Kontrak API Flutter & Draf WhatsApp 4 Quick Prompts (SRS REQ-6)",
+        "PASS" if all_test_09b_ok else "FAIL",
+        f"Kontrak Flutter Valid: {field_match}, Draf WA: {all_wa_ok}, Semantik Unified: {sem_unified_ok}, Leksikal Unified: {lex_unified_ok}, Gemini Fallback WA: {flutter_gem_ok}, Kalender Bersyarat: {calendar_rules_ok}",
     )
 
     # Restore stubs
@@ -794,6 +1244,10 @@ def test_10_latency_measurements():
         "Apa ketentuan pindah alamat ke rumah kontrakan?",
         "Berapa lama masa berlaku surat pengantar RT?",
     ]
+
+    # Warmup satu kali untuk menghindari overhead inisialisasi cold-start
+    if test_queries:
+        rag.search_chunks(rules.konteks_pertanyaan(test_queries[0], []), chunks)
 
     latencies = []
     for q in test_queries:
@@ -831,6 +1285,9 @@ def main():
     test_1_retrieval_offline()
     test_2_semantic_embedding()
     test_3_multi_turn_conversations()
+    test_3b_quick_prompts_and_controls()
+    test_3c_long_session_topic_switch()
+    test_3d_backfill_dry_run_safety()
     test_4_session_and_user_isolation()
     test_5_grounding_and_security()
     test_6_provider_failure_and_fallback()

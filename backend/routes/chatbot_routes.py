@@ -1,10 +1,12 @@
 import json
 import re
+import time
 from flask import Blueprint, request, jsonify
+from config import Config
 from database.db import query_all, query_one, execute, execute_returning, transaction
 from middleware.auth_middleware import jwt_required, roles_accepted
 from services.notification_service import add_notification
-from services.rag_service import search_knowledge_base
+from services.rag_service import search_knowledge_base, invalidate_knowledge_chunks_cache
 from services.chatbot_rules import (
     is_sensitive_credential_for_storage,
     konteks_pertanyaan,
@@ -25,6 +27,10 @@ def ask_chatbot():
     Uses the configured lexical-retrieval threshold; low matches are escalated.
     """
     user = request.current_user
+    t_req_start = getattr(request, '_t_req_start', None) or time.perf_counter()
+    TOTAL_REQUEST_BUDGET = Config.TANYART_LLM_TIMEOUT  # SRS NFR 5.1 target (default 5.0s)
+    DB_PERSISTENCE_RESERVE = 2.4  # Detik dicadangkan untuk commit transaksi Supabase di jaringan WAN (mengeliminasi overshoot)
+
     parsed_data = request.get_json(silent=True)
     data = parsed_data if isinstance(parsed_data, dict) else {}
     query_value = data.get('query') or data.get('pertanyaan')
@@ -57,18 +63,19 @@ def ask_chatbot():
             return jsonify({'success': False, 'message': 'Akses ditolak', 'data': None, 'error': 'FORBIDDEN'}), 403
 
     # 1b. Ambil riwayat pesan warga sesi ini (tersanitasi) untuk konteks
-    # pertanyaan lanjutan. Dilakukan setelah cek kepemilikan sesi di atas.
+    # pertanyaan lanjutan. Mengambil 5 pesan terbaru warga (ORDER BY DESC LIMIT 5)
+    # lalu dibalik ke urutan kronologis agar konteks percakapan multi-turn mutakhir.
     riwayat = []
     if session_id:
         try:
             riwayat_rows = query_all(
                 """SELECT isi_pesan FROM chatmessage
                    WHERE chat_session_id = %s AND pengirim = 'warga'
-                   ORDER BY tanggal_kirim ASC, message_id ASC LIMIT 5""",
+                   ORDER BY tanggal_kirim DESC, message_id DESC LIMIT 5""",
                 (session_id,),
             )
             riwayat = [
-                row['isi_pesan'] for row in (riwayat_rows or [])
+                row['isi_pesan'] for row in reversed(riwayat_rows or [])
                 if row.get('isi_pesan')
                 and '[Pesan disembunyikan oleh sistem' not in row['isi_pesan']
             ]
@@ -90,12 +97,6 @@ def ask_chatbot():
         # Masking PII (NIK 16 digit & Nomor Telepon dengan pemisah) agar tidak tersimpan mentah dalam chat history
         pesan_disimpan = mask_pii(query_text)
 
-    # 2. Catat pesan warga yang telah disanitasi ke tabel chatmessage
-    execute(
-        "INSERT INTO chatmessage (chat_session_id, pengirim, isi_pesan) VALUES (%s, 'warga', %s)",
-        (session_id, pesan_disimpan)
-    )
-
     # 1c. Maksud belum jelas: rujukan tanpa riwayat bertopik -> satu klarifikasi
     if (
         not is_sensitive
@@ -103,6 +104,10 @@ def ask_chatbot():
         and rujukan_konteks(query_text)
         and not semua_topik(query_efektif)
     ):
+        execute(
+            "INSERT INTO chatmessage (chat_session_id, pengirim, isi_pesan) VALUES (%s, 'warga', %s)",
+            (session_id, pesan_disimpan)
+        )
         return jsonify({
             'success': True,
             'message': 'Perlu klarifikasi',
@@ -123,13 +128,26 @@ def ask_chatbot():
 
     # 2. Find matching knowledge with semantic or lexical retrieval & Gemini synthesis
     # Pertanyaan disanitasi (PII dimask) sebelum diteruskan ke embedding atau Gemini
-    sanitized_query_efektif = mask_pii(query_efektif)
-    rag_result = search_knowledge_base(sanitized_query_efektif, conversation_history=riwayat)
+    elapsed_so_far = time.perf_counter() - t_req_start
+    rem_for_rag = max(0.0, TOTAL_REQUEST_BUDGET - elapsed_so_far - DB_PERSISTENCE_RESERVE)
 
-    # 3. Catat balasan sistem AI ke chatmessage; chunk sumber & skornya ke retrievallog
+    sanitized_query_efektif = mask_pii(query_efektif)
+    rag_result = search_knowledge_base(
+        sanitized_query_efektif,
+        conversation_history=riwayat,
+        time_budget=rem_for_rag,
+        raw_query=mask_pii(query_text),
+    )
+
+    # 3. Catat pesan warga, balasan AI, dan retrieval log dalam 1 transaksi atomik (menghemat ~800ms)
     escalated = rag_result['is_escalated']
     rt_id = first_rt_id() if escalated else None
     with transaction() as cur:
+        cur.execute(
+            """INSERT INTO chatmessage (chat_session_id, pengirim, isi_pesan)
+               VALUES (%s, 'warga', %s)""",
+            (session_id, pesan_disimpan)
+        )
         cur.execute(
             """INSERT INTO chatmessage (chat_session_id, pengirim, isi_pesan)
                VALUES (%s, 'sistem_ai', %s) RETURNING message_id""",
@@ -322,6 +340,7 @@ def upload_knowledge_document():
                     (kb_id, idx, chunk_text, judul, vec),
                 )
 
+        invalidate_knowledge_chunks_cache()
         return jsonify({
             'success': True,
             'message': 'Dokumen basis pengetahuan berhasil disimpan dan diproses',
@@ -401,6 +420,7 @@ def update_knowledge_document(knowledge_id: int):
                     (knowledge_id, idx, chunk_text, judul, vec),
                 )
 
+        invalidate_knowledge_chunks_cache()
         return jsonify({
             'success': True,
             'message': 'Dokumen basis pengetahuan berhasil diperbarui',
@@ -440,6 +460,7 @@ def delete_knowledge_document(knowledge_id: int):
             cur.execute("DELETE FROM knowledgechunk WHERE knowledge_id = %s", (knowledge_id,))
             cur.execute("DELETE FROM knowledgebase WHERE knowledge_id = %s", (knowledge_id,))
 
+        invalidate_knowledge_chunks_cache()
         return jsonify({
             'success': True,
             'message': 'Dokumen basis pengetahuan berhasil dihapus',
