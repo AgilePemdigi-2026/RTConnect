@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
@@ -19,7 +21,9 @@ class LetterRepository {
     required String metodeTandaTangan,
     String? lampiranPath,
     Map<String, String> dataPemohon = const {},
+    Map<String, dynamic>? aiMeta,
   }) async {
+    // aiMeta: catatan asisten AI (kolom yang diisi AI & yang diubah warga) untuk evaluasi ketepatan
     // dataPemohon: pekerjaan, jenis_kelamin, tempat_lahir, tanggal_lahir (YYYY-MM-DD),
     // agama, status_kawin, kewarganegaraan, nomor_kk, tujuan, keterangan_lain
     dynamic payload;
@@ -29,6 +33,7 @@ class LetterRepository {
         'keperluan': keperluan,
         'metode_tanda_tangan': metodeTandaTangan,
         ...dataPemohon,
+        if (aiMeta != null) 'ai_meta': jsonEncode(aiMeta),
         'lampiran': await MultipartFile.fromFile(lampiranPath),
       });
     } else {
@@ -37,6 +42,7 @@ class LetterRepository {
         'keperluan': keperluan,
         'metode_tanda_tangan': metodeTandaTangan,
         ...dataPemohon,
+        if (aiMeta != null) 'ai_meta': aiMeta,
       };
     }
 
@@ -55,10 +61,11 @@ class LetterRepository {
   }
 
   /// Asisten AI: isi formulir dari cerita warga (biodata tersimpan dipakai ulang).
-  Future<Map<String, dynamic>> aiFill(String pesan) async {
+  /// [riwayat]: pesan warga sebelumnya di percakapan yang sama (percakapan lanjutan).
+  Future<Map<String, dynamic>> aiFill(String pesan, {List<String> riwayat = const []}) async {
     final response = await _apiClient.dio.post<Map<String, dynamic>>(
       ApiEndpoints.aiFill,
-      data: {'pesan': pesan},
+      data: {'pesan': pesan, if (riwayat.isNotEmpty) 'riwayat': riwayat},
       // Gemini bisa butuh lebih lama dari batas default 15 detik.
       options: Options(receiveTimeout: const Duration(seconds: 90)),
     );

@@ -285,3 +285,63 @@ def step_field_not_contains(context, field_path, text):
     from common_steps import resolve_field
     value = resolve_field(context.last_json, field_path)
     assert value is None or text not in value, f'Field {field_path} = {value!r} masih memuat "{text}"'
+
+
+# --------------------------------------------------------------- AI lanjutan
+
+@when('the resident continues the AI conversation with "{pesan}" after "{sebelumnya}"')
+def step_ai_followup(context, pesan, sebelumnya):
+    _save(context, context.client.post('/api/v1/letters/ai-fill', headers=_headers(context, 'warga'),
+                                       json={'pesan': pesan, 'riwayat': [sebelumnya]}))
+
+
+@when('the resident sends an AI request with an invalid history')
+def step_ai_bad_history(context):
+    _save(context, context.client.post('/api/v1/letters/ai-fill', headers=_headers(context, 'warga'),
+                                       json={'pesan': 'Saya mau SKCK', 'riwayat': ['x' * 700]}))
+
+
+@then('the AI should have received "{text}"')
+def step_ai_received(context, text):
+    assert context.ai_received, 'Model AI tidak dipanggil'
+    assert any(text in message for message in context.ai_received), \
+        f'Teks "{text}" tidak ikut terkirim ke AI: {context.ai_received}'
+
+
+@when('the resident submits a "{kode}" application through the AI assistant where AI filled "{kolom_ai}" and the resident changed "{kolom_diubah}"')
+def step_apply_with_ai_meta(context, kode, kolom_ai, kolom_diubah):
+    res = context.client.post('/api/v1/letters/apply', headers=_headers(context, 'warga'), json={
+        'jenis_surat_id': _jenis_id(kode),
+        'keperluan': 'Persyaratan melamar pekerjaan (BDD asisten AI)',
+        'metode_tanda_tangan': 'digital',
+        **BIODATA_DEFAULT,
+        'ai_meta': {
+            'model': 'bdd-model',
+            'jumlah_pesan': 2,
+            'kolom_ai': [k for k in kolom_ai.split(',') if k],
+            'kolom_diubah': [k for k in kolom_diubah.split(',') if k],
+        },
+    })
+    _save(context, res)
+    assert res.status_code == 201, f'Gagal membuat pengajuan: {res.data}'
+    context.app_id = res.get_json()['data']['pengajuan_id']
+    context.created_letter_ids.append(context.app_id)
+
+
+@then('the AI log of the application should record {ai:d} AI fields and {diubah:d} changed field')
+@then('the AI log of the application should record {ai:d} AI fields and {diubah:d} changed fields')
+def step_ai_log(context, ai, diubah):
+    row = query_one('SELECT jumlah_ai, jumlah_diubah, jumlah_pesan, model FROM ai_fill_log WHERE pengajuan_id = %s',
+                    (context.app_id,))
+    assert row, 'Catatan asisten AI tidak tersimpan'
+    assert (row['jumlah_ai'], row['jumlah_diubah']) == (ai, diubah), f'Catatan AI: {row}'
+
+
+@when('the RT head opens the AI assistant statistics')
+def step_ai_stats(context):
+    _save(context, context.client.get('/api/v1/letters/ai-stats', headers=_headers(context, 'rt')))
+
+
+@when('the resident opens the AI assistant statistics')
+def step_ai_stats_resident(context):
+    _save(context, context.client.get('/api/v1/letters/ai-stats', headers=_headers(context, 'warga')))

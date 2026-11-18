@@ -68,6 +68,7 @@ class LetterSubmitController extends StateNotifier<LetterSubmitState> {
     required String metodeTandaTangan,
     String? lampiranPath,
     Map<String, String> dataPemohon = const {},
+    Map<String, dynamic>? aiMeta,
   }) async {
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {
@@ -77,6 +78,7 @@ class LetterSubmitController extends StateNotifier<LetterSubmitState> {
         metodeTandaTangan: metodeTandaTangan,
         lampiranPath: lampiranPath,
         dataPemohon: dataPemohon,
+        aiMeta: aiMeta,
       );
       state = state.copyWith(isLoading: false, result: res);
       _ref.invalidate(myApplicationsProvider);

@@ -84,3 +84,45 @@ Feature: [Sprint 2] Generative Document dengan Asisten AI dan Biodata Tersimpan
     When the resident asks the AI assistant "SK"
     Then the response status code should be 400
     And the response field "error" should be "VALIDATION_ERROR"
+
+  Scenario: Percakapan lanjutan - jawaban singkat melengkapi cerita sebelumnya
+    Given the AI model will answer with:
+      | field            | value                                    |
+      | jenis_surat_kode | SKCK                                     |
+      | keperluan        | Persyaratan melamar pekerjaan            |
+      | tujuan           | Polsek Karang Pilang                     |
+    When the resident continues the AI conversation with "Ke Polsek Karang Pilang" after "Saya mau SKCK buat melamar kerja"
+    Then the response status code should be 200
+    And the AI should have received "Saya mau SKCK buat melamar kerja"
+    And the AI should have received "Ke Polsek Karang Pilang"
+    And the response field "data.data_pemohon.tujuan" should be "Polsek Karang Pilang"
+
+  Scenario: Asisten memberi saran tujuan dan daftar syarat sesuai jenis surat
+    Given the AI model will answer with:
+      | field            | value         |
+      | jenis_surat_kode | SKCK          |
+      | keperluan        | Melamar kerja |
+    When the resident asks the AI assistant "Saya mau SKCK untuk melamar kerja"
+    Then the response status code should be 200
+    And the response field "data.panduan.tujuan_saran" should contain "Polsek"
+    And the response field "data.panduan.tujuan_saran" should contain "Polrestabes Surabaya"
+    And the response field "data.panduan.syarat" should contain "Kartu Keluarga"
+    And the response field "data.data_pemohon.tujuan" should be null
+
+  Scenario: Riwayat percakapan yang tidak valid ditolak
+    When the resident sends an AI request with an invalid history
+    Then the response status code should be 400
+    And the response field "error" should be "VALIDATION_ERROR"
+
+  Scenario: Ketepatan asisten AI tercatat saat pengajuan dikirim
+    When the resident submits a "SKCK" application through the AI assistant where AI filled "keperluan,tujuan,pekerjaan" and the resident changed "tujuan"
+    Then the response status code should be 201
+    And the AI log of the application should record 3 AI fields and 1 changed field
+    When the RT head opens the AI assistant statistics
+    Then the response status code should be 200
+    And the response field "data.jumlah_pengajuan" should not be empty
+    And the response field "data.per_model" should contain "bdd-model"
+
+  Scenario: Statistik asisten AI hanya untuk Ketua RT
+    When the resident opens the AI assistant statistics
+    Then the response status code should be 403
