@@ -2,6 +2,8 @@ import os
 import random
 import secrets
 import datetime
+import json
+import logging
 from io import BytesIO
 from pathlib import PurePosixPath
 from flask import Blueprint, request, jsonify, send_file
@@ -10,9 +12,10 @@ from config import Config
 from database.db import query_all, query_one, execute_returning, transaction
 from middleware.auth_middleware import jwt_required, roles_accepted
 from services.ai_draft_service import generate_letter_draft
-from services.ai_fill_service import MAX_MESSAGE_LENGTH, suggest_application
+from services.ai_fill_service import MAX_HISTORY, MAX_MESSAGE_LENGTH, suggest_application
 from services.applicant_data import (
-    PER_LETTER_FIELDS, SELECT_COLUMNS as APPLICANT_COLUMNS, columns_to_api, parse_applicant_data, to_api,
+    FIELDS as APPLICANT_FIELDS, PER_LETTER_FIELDS, SELECT_COLUMNS as APPLICANT_COLUMNS, columns_to_api,
+    parse_applicant_data, to_api,
 )
 from services.file_storage import read_bytes, store_bytes, store_upload
 from services.letter_number_service import generate_unique_letter_number
@@ -72,6 +75,32 @@ def get_letter_types():
         'data': types,
         'error': None
     }), 200
+
+_AI_LOG_FIELDS = set(APPLICANT_FIELDS) | {'jenis_surat', 'keperluan', 'metode_tanda_tangan'}
+logger = logging.getLogger(__name__)
+
+
+def _parse_ai_meta(raw):
+    """Validasi catatan asisten AI dari aplikasi (opsional). None bila tidak ada / tidak valid."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return None
+    if not isinstance(raw, dict):
+        return None
+    kolom_ai = [k for k in raw.get('kolom_ai') or [] if isinstance(k, str) and k in _AI_LOG_FIELDS]
+    kolom_diubah = [k for k in raw.get('kolom_diubah') or [] if isinstance(k, str) and k in kolom_ai]
+    if not kolom_ai:
+        return None
+    try:
+        jumlah_pesan = max(1, min(int(raw.get('jumlah_pesan') or 1), 20))
+    except (TypeError, ValueError):
+        jumlah_pesan = 1
+    model = raw.get('model') if isinstance(raw.get('model'), str) else None
+    return {'kolom_ai': sorted(set(kolom_ai)), 'kolom_diubah': sorted(set(kolom_diubah)),
+            'jumlah_pesan': jumlah_pesan, 'model': (model or '')[:80] or None}
+
 
 @letter_bp.route('/apply', methods=['POST'])
 @jwt_required
@@ -151,6 +180,23 @@ def apply_letter():
             "INSERT INTO draftsurat (pengajuan_id, isi_draft, versi_ke, dibuat_oleh_ai) VALUES (%s, %s, 1, TRUE)",
             (pengajuan_id, draf_ai)
         )
+        ai_meta = _parse_ai_meta(data.get('ai_meta'))
+        if ai_meta:
+            # Catatan ketepatan asisten AI; tidak boleh menggagalkan pengajuan.
+            try:
+                cur.execute("SAVEPOINT ai_log")
+                cur.execute(
+                    """INSERT INTO ai_fill_log (pengajuan_id, warga_id, model, jumlah_pesan, kolom_ai,
+                                                kolom_diubah, jumlah_ai, jumlah_diubah)
+                       VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s)""",
+                    (pengajuan_id, user['user_id'], ai_meta['model'], ai_meta['jumlah_pesan'],
+                     json.dumps(ai_meta['kolom_ai']), json.dumps(ai_meta['kolom_diubah']),
+                     len(ai_meta['kolom_ai']), len(ai_meta['kolom_diubah']))
+                )
+                cur.execute("RELEASE SAVEPOINT ai_log")
+            except Exception as error:  # tabel belum dimigrasi, dsb.
+                cur.execute("ROLLBACK TO SAVEPOINT ai_log")
+                logger.warning('Catatan asisten AI tidak tersimpan: %s', error)
         # Tambah Notifikasi untuk Ketua RT
         if rt_id:
             add_notification(
@@ -296,9 +342,15 @@ def ai_fill_application():
     if len(pesan) > MAX_MESSAGE_LENGTH:
         return jsonify({'success': False, 'message': f'Cerita maksimal {MAX_MESSAGE_LENGTH} karakter',
                         'data': None, 'error': 'VALIDATION_ERROR'}), 400
+    # Percakapan lanjutan: pesan-pesan warga sebelumnya (opsional)
+    riwayat = data.get('riwayat') or []
+    if not isinstance(riwayat, list) or len(riwayat) > MAX_HISTORY * 3 or any(
+            not isinstance(item, str) or len(item) > MAX_MESSAGE_LENGTH for item in riwayat):
+        return jsonify({'success': False, 'message': 'Riwayat percakapan tidak valid',
+                        'data': None, 'error': 'VALIDATION_ERROR'}), 400
 
     letter_types = query_all(
-        "SELECT j.jenis_surat_id, j.kode_surat, j.nama_jenis AS nama_surat "
+        "SELECT j.jenis_surat_id, j.kode_surat, j.nama_jenis AS nama_surat, j.persyaratan_dokumen "
         "FROM jenissurat j WHERE j.is_aktif = TRUE ORDER BY j.jenis_surat_id"
     )
     stored = query_one(
@@ -309,8 +361,50 @@ def ai_fill_application():
             LIMIT 1""",
         (request.current_user['user_id'],)
     )
-    result = suggest_application(pesan, letter_types, stored)
+    result = suggest_application(pesan, letter_types, stored, history=riwayat)
     return jsonify({'success': True, 'message': result['pesan'], 'data': result, 'error': None}), 200
+
+
+@letter_bp.route('/ai-stats', methods=['GET'])
+@jwt_required
+@roles_accepted('rt')
+def ai_fill_stats():
+    """Ketepatan asisten AI: berapa persen isian AI yang dipakai tanpa diubah warga."""
+    total = query_one(
+        """SELECT COUNT(*) AS jumlah_pengajuan, COALESCE(SUM(jumlah_ai), 0) AS kolom_ai,
+                  COALESCE(SUM(jumlah_diubah), 0) AS kolom_diubah,
+                  COALESCE(ROUND(AVG(jumlah_pesan)::numeric, 2), 0) AS rata_rata_pesan,
+                  COUNT(*) FILTER (WHERE jumlah_diubah = 0) AS tanpa_koreksi
+           FROM ai_fill_log"""
+    )
+    per_model = query_all(
+        """SELECT COALESCE(model, '-') AS model, COUNT(*) AS jumlah_pengajuan,
+                  SUM(jumlah_ai) AS kolom_ai, SUM(jumlah_diubah) AS kolom_diubah
+           FROM ai_fill_log GROUP BY COALESCE(model, '-') ORDER BY 2 DESC"""
+    )
+    per_kolom = query_all(
+        """SELECT k.kolom, COUNT(*) AS diisi_ai,
+                  COUNT(*) FILTER (WHERE l.kolom_diubah ? k.kolom) AS diubah
+           FROM ai_fill_log l, jsonb_array_elements_text(l.kolom_ai) AS k(kolom)
+           GROUP BY k.kolom ORDER BY 2 DESC"""
+    )
+
+    def akurasi(ai, diubah):
+        ai, diubah = int(ai or 0), int(diubah or 0)
+        return round(100.0 * (ai - diubah) / ai, 1) if ai else None
+
+    data = {
+        'jumlah_pengajuan': int(total['jumlah_pengajuan']),
+        'kolom_diisi_ai': int(total['kolom_ai']),
+        'kolom_diubah_warga': int(total['kolom_diubah']),
+        'ketepatan_kolom_persen': akurasi(total['kolom_ai'], total['kolom_diubah']),
+        'pengajuan_tanpa_koreksi_persen': (round(100.0 * int(total['tanpa_koreksi']) / int(total['jumlah_pengajuan']), 1)
+                                           if total['jumlah_pengajuan'] else None),
+        'rata_rata_pesan': float(total['rata_rata_pesan']),
+        'per_model': [{**row, 'ketepatan_persen': akurasi(row['kolom_ai'], row['kolom_diubah'])} for row in per_model],
+        'per_kolom': [{**row, 'ketepatan_persen': akurasi(row['diisi_ai'], row['diubah'])} for row in per_kolom],
+    }
+    return jsonify({'success': True, 'message': 'Statistik asisten AI', 'data': data, 'error': None}), 200
 
 @letter_bp.route('/my-last-data', methods=['GET'])
 @jwt_required
