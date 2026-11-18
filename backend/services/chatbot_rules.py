@@ -119,7 +119,7 @@ def semua_topik(teks):
         found.append("nonpermanen")
 
     if not is_dom_lembaga and not is_nonpermanen and re.search(
-        r"kontrakan|rumah sewa|rumah sewaan|pindah alamat|pindah domisili|menumpang tinggal|pindah datang|perpindahan penduduk",
+        r"kontrakan|rumah sewa|rumah sewaan|pindah alamat|pindah domisili|menumpang tinggal|pindah datang|perpindahan penduduk|\bbaru pindah\b|\bpindah rumah\b",
         q,
     ):
         found.append("domisili")
@@ -139,6 +139,84 @@ def semua_topik(teks):
         found.append("kecamatan")
 
     return found
+
+
+TOPIK_KATA_KUNCI = {
+    # Kata kunci per topik untuk pewarisan konteks sesi. Setiap nilai wajib
+    # memicu topiknya sendiri lewat semua_topik() dan sebisa mungkin tidak
+    # mengandung kata pemicu aksi lain.
+    "ktp": "KTP",
+    "kk": "KK kartu keluarga",
+    "skck": "SKCK",
+    "domisili": "pindah alamat kontrakan",
+    "domisili_lembaga": "surat domisili lembaga",
+    "nonpermanen": "nonpermanen kos",
+    "nib": "NIB usaha rumahan",
+    "kecamatan": "surat keterangan kecamatan",
+    "kematian": "kematian",
+}
+
+AKSI_KATA_KUNCI = {
+    # Kata kunci per aksi untuk pewarisan konteks sesi. Dipakai hanya bila
+    # pertanyaan lanjutan tidak membawa aksi sendiri.
+    "hilang": "hilang",
+    "rusak": "rusak",
+    "perubahan": "perubahan nama",
+    "perekaman": "perekaman pertama kali",
+    "persyaratan": "syarat",
+    "prosedur": "prosedur cara",
+    "kontrakan": "kontrakan sewa",
+    "verifikasi_alamat": "verifikasi tempat tinggal tidak ditempati",
+}
+
+POLA_RUJUKAN_KONTEKS = re.compile(
+    r"\b(kalau|kalo|itu|tersebut|tadi|sebelumnya|terus|lanjut|selanjutnya|begitu|demikian)\b|nya\b",
+    re.IGNORECASE,
+)
+
+
+def rujukan_konteks(query):
+    """True jika pertanyaan mengandung rujukan ke pembahasan sebelumnya."""
+    return bool(POLA_RUJUKAN_KONTEKS.search(normalisasi(query)))
+
+
+def konteks_pertanyaan(query, riwayat):
+    """Bangun kueri efektif dengan konteks sesi yang sama.
+
+    riwayat: daftar pesan warga tersanitasi sesi ini (terlama -> terbaru),
+    tanpa placeholder kredensial. Aturan:
+    - Tanpa riwayat: kembalikan query apa adanya (sesi baru tanpa konteks).
+    - Query bertopik eksplisit: topik baru menang, riwayat diabaikan.
+    - Tanpa penanda rujukan: konteks tidak dipakai.
+    - Riwayat tanpa topik: maksud belum jelas, kembalikan query agar
+      guardklarifikasi (PERTANYAAN_TIDAK_JELAS / PERLU_VERIFIKASI) bekerja.
+    - Aksi riwayat hanya diwariskan bila query tidak membawa aksi sendiri.
+    """
+    if not riwayat:
+        return query
+    if semua_topik(query):
+        return query
+    if not rujukan_konteks(query):
+        return query
+    kata = []
+    for teks in reversed(riwayat):
+        topiks = semua_topik(teks)
+        if topiks:
+            kata.append(TOPIK_KATA_KUNCI.get(topiks[0], topiks[0]))
+            break
+    if not kata:
+        return query
+    aksi_query = aksi_pertanyaan(query)
+    if not aksi_query or aksi_query in ("persyaratan", "prosedur"):
+        # Query lanjutan tanpa aksi spesifik ("Syaratnya apa saja?") atau
+        # beraksi generik: wariskan aksi spesifik pembahasan sebelumnya
+        # (mis. "hilang") agar dokumen yang tepat yang terangkat.
+        for teks in reversed(riwayat):
+            aksi = aksi_pertanyaan(teks)
+            if aksi and aksi != aksi_query:
+                kata.append(AKSI_KATA_KUNCI.get(aksi, aksi))
+                break
+    return f"{query} {' '.join(kata)}"
 
 
 def topik_pertanyaan(teks):
@@ -175,7 +253,7 @@ def aksi_pertanyaan(teks):
     ):
         return "perubahan"
 
-    if re.search(r"pertama kali|usia 17|umur 17|perekaman|rekam", q):
+    if re.search(r"pertama kali|usia 17|umur 17|perekaman|rekam|belum (pernah )?(punya|memiliki|bikin|buat)", q):
         return "perekaman"
 
     if re.search(r"syarat|persyaratan|berkas", q):
@@ -356,6 +434,10 @@ SENTENCE_FUNCTION_WORDS = {
     # kalimat natural (false negative).
     'catat', 'mencatat', 'simpan', 'menyimpan', 'tulis', 'menulis', 'pegang',
     'aman', 'darurat', 'keadaan',
+    # Kosa kata naratif dan edukasi keamanan/administrasi umum
+    'panduan', 'pemula', 'membahas', 'risiko', 'pencurian', 'aset',
+    'melalui', 'aplikasi', 'palsu', 'perangkat', 'rusak', 'kebocoran',
+    'bocor', 'serta', 'praktik', 'pemulihan', 'tentang', 'terhadap',
     # English sentence words (function words, question words, verbs)
     'and', 'how', 'people', 'should', 'protect', 'their', 'when', 'using', 'hardware',
     'wallets', 'wallet', 'what', 'why', 'where', 'explain', 'tell', 'safe', 'keep',
@@ -406,7 +488,7 @@ def contains_raw_ssh_or_seed_phrase(text: str) -> bool:
         ).strip()
 
         cleaned_words = re.sub(r'\b\d+[\.:\s]+', ' ', cleaned_after)
-        tokens = re.split(r'[\s,;\-]+', cleaned_words.strip())
+        tokens = re.split(r'[\s,;\.\:\?!/\\(\)\[\]"\']+', cleaned_words.strip())
         words = [w.lower() for w in tokens if re.fullmatch(r'[a-zA-Z]{3,12}', w)]
 
         # Jendela geser: nilai setiap rentang 12 kata berurutan. Pengantar
@@ -481,6 +563,9 @@ POLA_BEST_PRACTICE = re.compile(
 
 def cek_keamanan(pertanyaan):
     """Periksa apakah pertanyaan mengandung permintaan informasi rahasia atau injeksi prompt."""
+    if contains_raw_ssh_or_seed_phrase(pertanyaan):
+        return "RAHASIA"
+
     sec_q = normalisasi_keamanan(pertanyaan)
     has_injection = bool(POLA_INJEKSI.search(sec_q))
     has_rahasia = bool(POLA_RAHASIA.search(sec_q))
@@ -602,3 +687,53 @@ def batasan(
         return None
 
     return "LUAR_CAKUPAN"
+
+
+def klarifikasi_layanan_umum(pertanyaan: str) -> str | None:
+    """Deteksi pertanyaan umum mengenai layanan yang memiliki banyak cabang prosedur.
+
+    Jika pengguna bertanya secara umum (misalnya 'mau mengurus KTP' atau 'bagaimana mengurus KK'
+    atau 'aku baru pindah') tanpa menyebutkan keperluan spesifik (hilang/rusak/perekaman 17/ubah data),
+    ajukan klarifikasi singkat yang memandu pengguna alih-alih asal memilih dokumen secara sepihak.
+    """
+    q = normalisasi(pertanyaan).strip()
+    topiks = semua_topik(q)
+    aksi = aksi_pertanyaan(q)
+
+    # 1. Kasus KTP tanpa aksi spesifik
+    if "ktp" in topiks and aksi in (None, "persyaratan", "prosedur"):
+        if not re.search(
+            r"hilang|rusak|patah|pecah|sobek|usia 17|umur 17|rekam|pertama kali|belum (pernah )?(punya|memiliki|bikin)|ganti nama|ubah|pindah",
+            q,
+        ):
+            return (
+                "Untuk pengurusan KTP di Surabaya, layanannya terbagi berdasarkan keperluan: "
+                "1. Perekaman baru (usia 17 tahun), "
+                "2. Penggantian KTP hilang, "
+                "3. Penggantian KTP rusak, atau "
+                "4. Perubahan data/alamat. Keperluan mana yang ingin Anda urus?"
+            )
+
+    # 2. Kasus KK tanpa aksi spesifik
+    if "kk" in topiks and aksi in (None, "persyaratan", "prosedur"):
+        if not re.search(
+            r"hilang|rusak|sobek|patah|pecah|ubah|ganti nama|koreksi|tambah anggota",
+            q,
+        ):
+            return (
+                "Untuk layanan Kartu Keluarga (KK), keperluannya dibedakan menjadi: "
+                "1. Penggantian KK rusak, "
+                "2. Penggantian KK hilang, atau "
+                "3. Perubahan elemen data KK. Layanan mana yang Anda butuhkan?"
+            )
+
+    # 3. Kasus baru pindah tanpa aksi spesifik
+    if "domisili" in topiks and re.search(r"\b(baru pindah|baru datang|pindah ke sini)\b", q):
+        if not re.search(r"kontrakan|sewa|kos|surat pindah|sptjm|verifikasi", q):
+            return (
+                "Selamat datang di lingkungan RT 04 / RW 09 Gunungsari Indah. "
+                "Untuk warga yang baru pindah, apakah Anda menempati rumah kontrakan/sewa, "
+                "atau sedang mengurus surat kepindahan domisili resmi?"
+            )
+
+    return None

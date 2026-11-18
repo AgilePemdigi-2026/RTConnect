@@ -33,7 +33,14 @@ class _Config:
     RAG_SIMILARITY_THRESHOLD = 0.70
     RT_WHATSAPP_NUMBER = "6281234567890"
     RT_NAME = "Ketua RT"
-    RT_AREA = "RT 04"
+    RT_AREA = "RT 04 / RW 09 Gunungsari Indah"
+    RT_KELURAHAN = "Kedurus"
+    RT_KECAMATAN = "Karang Pilang"
+    RT_KABUPATEN = "Kota Surabaya"
+    GEMINI_API_KEY = ""
+    OPENAI_API_KEY = ""
+    EMBEDDING_API_KEY = ""
+    TANYART_LLM_TIMEOUT = 5.0
 
 
 _cfg.Config = _Config

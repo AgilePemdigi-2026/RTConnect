@@ -1,5 +1,6 @@
 import math
 import re
+import time
 import urllib.parse
 from collections import Counter
 
@@ -14,10 +15,23 @@ from services.chatbot_rules import (
     coverage_score,
     is_local_context_question,
     is_rt_surat_question,
+    is_sensitive_credential_for_storage,
+    klarifikasi_layanan_umum,
+    mask_pii,
     normalisasi,
     semua_topik,
     topik_dokumen,
     topik_pertanyaan,
+)
+from services.semantic_embedding_service import (
+    is_embedding_configured,
+    generate_embedding,
+    search_semantic_chunks,
+)
+from services.tanyart_llm_service import (
+    is_gemini_configured,
+    synthesize_answer_with_gemini,
+    build_citation,
 )
 
 
@@ -162,6 +176,21 @@ def search_chunks(query, chunks):
     sec_guard = cek_keamanan(query)
     if sec_guard:
         return _fallback_result(query, sec_guard)
+
+    # Deteksi klarifikasi layanan umum (mis. mau mengurus KTP tanpa detail keperluan)
+    klarif = klarifikasi_layanan_umum(query)
+    if klarif:
+        return {
+            'is_escalated': False,
+            'answer': klarif,
+            'citation': None,
+            'similarity_score': 0.0,
+            'top_chunk_id': None,
+            'source_id': None,
+            'status': 'KLARIFIKASI_DIBUTUHKAN',
+            'escalation_whatsapp_url': None,
+            'retrieval_mode': 'clarification',
+        }
 
     all_topics = semua_topik(query)
     if len(all_topics) > 1:
@@ -315,17 +344,123 @@ def search_chunks(query, chunks):
     )
 
 
-def search_knowledge_base(query: str) -> dict:
-    """Cari jawaban pada knowledge base runtime.
+def search_knowledge_base(
+    query: str,
+    conversation_history: list | None = None,
+    time_budget: float | None = None,
+) -> dict:
+    """Cari jawaban pada knowledge base runtime Supabase.
 
-    Skor yang dikembalikan adalah skor hybrid heuristik (lexical + boost
-    topik/aksi), bukan probabilitas model.
+    Sesuai SRS:
+    - Batas Privasi: Memvalidasi kueri dan menyamarkan PII (NIK/No HP) sebelum
+      percabangan semantik maupun leksikal. Kredensial rahasia / injeksi dicegat langsung.
+    - Anggaran Waktu: Seluruh alur (embedding + LLM) berjalan dalam time budget (maks 5s).
+    - Bila OpenAI/Embedding service dikonfigurasi & embedding dokumen tersedia:
+      menggunakan cosine similarity embedding murni (text-embedding-3-small) dengan ambang 0,70.
+    - Bila layanan embedding belum dikonfigurasi / timeout: fallback terkelola ke ranking leksikal
+      (dengan penandaan retrieval_mode: 'lexical_heuristic_fallback', skor tidak diklaim sebagai cosine).
+    - Bila potongan dokumen resmi ditemukan: menyintesis jawaban menggunakan Gemini AI API
+      dengan batasan grounding ketat pada dokumen resmi (SRS REQ-5).
     """
+    t_start = time.perf_counter()
+    budget = time_budget if time_budget is not None else Config.TANYART_LLM_TIMEOUT
+
+    # 0. Evaluasi keamanan & privasi terpadu sebelum percabangan semantik/leksikal
+    sec_guard = cek_keamanan(query)
+    if not sec_guard and is_sensitive_credential_for_storage(query):
+        sec_guard = 'RAHASIA'
+    if sec_guard:
+        return _fallback_result(query, sec_guard)
+
+    # Masking PII pada kueri dan riwayat sebelum diteruskan ke embedding maupun LLM
+    clean_query = mask_pii(query)
+    clean_history = [
+        mask_pii(m) for m in (conversation_history or [])
+        if m and '[Pesan disembunyikan' not in m and not is_sensitive_credential_for_storage(m)
+    ]
+
     chunks = query_all("""
         SELECT c.chunk_id, c.knowledge_id, c.urutan_chunk, c.isi_chunk,
-               c.kata_kunci, c.kode_sumber,
+               c.kata_kunci, c.kode_sumber, c.embedding_vector,
                k.judul AS judul_dokumen, k.kategori, k.isi_dokumen AS document_text
         FROM knowledgechunk c
         JOIN knowledgebase k ON c.knowledge_id = k.knowledge_id
     """)
-    return search_chunks(query, chunks)
+
+    # 1. Jalur Semantic Embedding (SRS REQ-3: text-embedding-3-small + Cosine Similarity)
+    semantic_enabled = is_embedding_configured()
+    chunks_with_vec = [c for c in (chunks or []) if c.get('embedding_vector')]
+
+    if semantic_enabled and chunks_with_vec:
+        rem_budget = budget - (time.perf_counter() - t_start)
+        if rem_budget > 0.1:
+            try:
+                q_vec = generate_embedding(clean_query, timeout=rem_budget)
+                best_chunk, cosine_sim, ranked_sem = search_semantic_chunks(
+                    q_vec, chunks_with_vec, threshold=Config.RAG_SIMILARITY_THRESHOLD
+                )
+                if best_chunk:
+                    res = {
+                        'is_escalated': False,
+                        'answer': f"Berdasarkan {best_chunk.get('judul_dokumen')}: {best_chunk.get('isi_chunk')}",
+                        'citation': build_citation(best_chunk),
+                        'similarity_score': cosine_sim,
+                        'base_score': cosine_sim,
+                        'top_chunk_id': best_chunk.get('chunk_id'),
+                        'source_id': best_chunk.get('kode_sumber'),
+                        'status': 'SUMBER_DITEMUKAN',
+                        'escalation_whatsapp_url': None,
+                        'retrieval_mode': 'semantic_embedding',
+                    }
+                    # Sintesis jawaban via Gemini jika tersedia dengan sisa anggaran waktu
+                    rem_for_llm = budget - (time.perf_counter() - t_start)
+                    if rem_for_llm > 0.1:
+                        answer_llm, citation, used_llm = synthesize_answer_with_gemini(
+                            clean_query, best_chunk, clean_history, time_budget=rem_for_llm
+                        )
+                        res['answer'] = answer_llm
+                        res['citation'] = citation
+                        res['ai_generated'] = used_llm
+                        if not used_llm and is_gemini_configured():
+                            res['escalation_whatsapp_url'] = _whatsapp_url()
+                    else:
+                        res['ai_generated'] = False
+                        if is_gemini_configured():
+                            res['escalation_whatsapp_url'] = _whatsapp_url()
+                    return res
+                else:
+                    # Skor < 0.70: eskalasi sesuai SRS REQ-6 (Alternative Path 1)
+                    res = _fallback_result(clean_query, 'PERLU_VERIFIKASI', best_score=cosine_sim)
+                    res['retrieval_mode'] = 'semantic_embedding'
+                    return res
+            except Exception:
+                # Jika panggilan embedding gagal / timeout, fallback ke lexical ranking
+                pass
+
+    # 2. Jalur Lexical Heuristic Fallback (bila embedding belum aktif/tersedia)
+    res = search_chunks(clean_query, chunks or [])
+    res['retrieval_mode'] = 'lexical_heuristic_fallback'
+
+    # 3. Bila sumber ditemukan, sintesis jawaban dengan Gemini (SRS REQ-5)
+    if res.get('status') == 'SUMBER_DITEMUKAN' and res.get('top_chunk_id'):
+        matched_chunk = next(
+            (c for c in (chunks or []) if c.get('chunk_id') == res['top_chunk_id']),
+            None,
+        )
+        if matched_chunk:
+            rem_for_llm = budget - (time.perf_counter() - t_start)
+            if rem_for_llm > 0.1:
+                answer_llm, citation, used_llm = synthesize_answer_with_gemini(
+                    clean_query, matched_chunk, clean_history, time_budget=rem_for_llm
+                )
+                res['answer'] = answer_llm
+                res['citation'] = citation
+                res['ai_generated'] = used_llm
+                if not used_llm and is_gemini_configured():
+                    res['escalation_whatsapp_url'] = _whatsapp_url()
+            else:
+                res['ai_generated'] = False
+                if is_gemini_configured():
+                    res['escalation_whatsapp_url'] = _whatsapp_url()
+
+    return res
