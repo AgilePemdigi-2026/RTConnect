@@ -6,7 +6,7 @@ from config import Config
 from database.db import UniqueViolation, execute_returning
 from middleware.auth_middleware import generate_token, jwt_required
 from services.file_storage import read_bytes, store_upload
-from services.user_service import find_by_identity, nik_or_email_taken, update_user_profile, update_user_signature, update_user_avatar
+from services.user_service import find_by_identity, nik_or_email_taken, update_user_profile, update_user_signature, update_user_avatar, update_user_fcm_token
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/v1/auth')
 
@@ -413,4 +413,46 @@ def get_avatar():
         as_attachment=False,
         download_name='avatar.png' if mimetype == 'image/png' else 'avatar.jpg'
     )
+
+
+@auth_bp.route('/device-token', methods=['POST'])
+@jwt_required
+def register_device_token():
+    """API-017: Mendaftarkan atau memperbarui FCM device token untuk push notification."""
+    user = request.current_user
+    payload = request.get_json(silent=True) or {}
+    fcm_token = str(payload.get('fcm_token') or '').strip()
+
+    if not fcm_token:
+        return jsonify({
+            'success': False,
+            'message': 'fcm_token wajib disertakan',
+            'data': None,
+            'error': 'VALIDATION_ERROR'
+        }), 400
+
+    update_user_fcm_token(user['role'], user['user_id'], fcm_token)
+
+    return jsonify({
+        'success': True,
+        'message': 'Token perangkat berhasil disimpan',
+        'data': {'fcm_token': fcm_token},
+        'error': None
+    }), 200
+
+
+@auth_bp.route('/device-token', methods=['DELETE'])
+@jwt_required
+def remove_device_token():
+    """Menghapus FCM device token saat pengguna logout."""
+    user = request.current_user
+    update_user_fcm_token(user['role'], user['user_id'], None)
+
+    return jsonify({
+        'success': True,
+        'message': 'Token perangkat berhasil dihapus',
+        'data': None,
+        'error': None
+    }), 200
+
 

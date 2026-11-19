@@ -5,19 +5,21 @@ nomor_telepon, role, tanda_tangan_url, ...) supaya aplikasi Flutter tidak perlu 
 """
 
 from config import Config
-from database.db import query_one
+from database.db import query_one, query_all
 
 _WARGA_SELECT = """
     SELECT warga_id AS user_id, nik, nama AS nama_lengkap, email, password_hash,
            no_telp AS nomor_telepon, alamat, nomor_rt, nomor_rw,
-           'warga'::text AS role, tanda_tangan_digital AS tanda_tangan_url, foto_profil, is_active
+           'warga'::text AS role, tanda_tangan_digital AS tanda_tangan_url, foto_profil, is_active,
+           fcm_token
     FROM warga
 """
 
 _RT_SELECT = """
     SELECT rt_id AS user_id, nik, nama AS nama_lengkap, email, password_hash,
            no_telp AS nomor_telepon, NULL::text AS alamat, nomor_rt, nomor_rw,
-           'rt'::text AS role, tanda_tangan_digital AS tanda_tangan_url, foto_profil, is_active
+           'rt'::text AS role, tanda_tangan_digital AS tanda_tangan_url, foto_profil, is_active,
+           fcm_token
     FROM rt
 """
 
@@ -101,4 +103,39 @@ def update_user_avatar(role: str, user_id: int, foto_profil_key: str):
         (foto_profil_key, user_id)
     )
     return get_user(role, user_id)
+
+
+def update_user_fcm_token(role: str, user_id: int, fcm_token: str = None):
+    """Simpan atau perbarui FCM token perangkat pengguna."""
+    if role not in _SELECTS:
+        return False
+    table = 'rt' if role == 'rt' else 'warga'
+    id_column = 'rt_id' if role == 'rt' else 'warga_id'
+    query_one(
+        f"""UPDATE {table} 
+            SET fcm_token = %s, fcm_updated_at = CURRENT_TIMESTAMP 
+            WHERE {id_column} = %s 
+            RETURNING {id_column}""",
+        (fcm_token, user_id)
+    )
+    return True
+
+
+def get_user_fcm_token(role: str, user_id: int):
+    """Ambil FCM token milik pengguna tertentu."""
+    if role not in _SELECTS:
+        return None
+    table = 'rt' if role == 'rt' else 'warga'
+    id_column = 'rt_id' if role == 'rt' else 'warga_id'
+    row = query_one(f"SELECT fcm_token FROM {table} WHERE {id_column} = %s", (user_id,))
+    return row.get('fcm_token') if row else None
+
+
+def get_all_rt_fcm_tokens():
+    """Ambil seluruh FCM token milik pengurus RT yang aktif."""
+    rows = query_all(
+        "SELECT fcm_token FROM rt WHERE is_active = TRUE AND fcm_token IS NOT NULL AND fcm_token <> ''"
+    )
+    return [r['fcm_token'] for r in rows if r.get('fcm_token')]
+
 
