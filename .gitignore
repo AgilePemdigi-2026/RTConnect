@@ -68,6 +68,16 @@ scripts/
 RTConnect-KnowledgeBase/
 
 # ==========================================
+# AI Assistant & Agent Guidelines
+# ==========================================
+GEMINI.md
+.agents/
+*.agent
+CLAUDE.md
+.claude/
+.cursor/
+
+# ==========================================
 # Temporary Dev Reports & Changelogs
 # ==========================================
 BACKEND_CHANGE_REPORT.md
