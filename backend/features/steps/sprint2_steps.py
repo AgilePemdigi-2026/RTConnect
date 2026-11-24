@@ -112,6 +112,10 @@ def step_given_signed(context, pin):
 @given('the AI model will answer with:')
 def step_fake_ai(context):
     answer = {key: (None if value == 'null' else value) for key, value in _table_to_dict(context.table).items()}
+    # Baris "bukti.<kolom>" -> objek bukti (kutipan dari cerita warga versi AI)
+    bukti = {key.split('.', 1)[1]: answer.pop(key) for key in list(answer) if key.startswith('bukti.')}
+    if bukti:
+        answer['bukti'] = bukti
     context.ai_received = []
 
     def fake_call(message, letter_types):
