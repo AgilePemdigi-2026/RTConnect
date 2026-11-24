@@ -65,7 +65,7 @@ def jalankan(nama, fungsi):
         cerita = mask_sensitive(combine_history(pesan, riwayat))
         mulai = time.time()
         try:
-            hasil = _clean_ai_result(fungsi(cerita, JENIS), JENIS)
+            hasil = _clean_ai_result(fungsi(cerita, JENIS), JENIS, story=cerita, latest=pesan)
             detik = time.time() - mulai
             skor = nilai(hasil, harapan)
             catatan = f"jenis={(hasil['jenis_surat'] or {}).get('kode_surat')} tujuan={hasil['fields'].get('tujuan')}"
