@@ -58,9 +58,15 @@ def nik_or_email_taken(nik: str, email: str):
     return None
 
 
+_FIRST_RT_ID_CACHE = None
+
+
 def first_rt_id():
-    row = query_one("SELECT rt_id FROM rt WHERE is_active ORDER BY rt_id LIMIT 1")
-    return row['rt_id'] if row else None
+    global _FIRST_RT_ID_CACHE
+    if _FIRST_RT_ID_CACHE is None:
+        row = query_one("SELECT rt_id FROM rt WHERE is_active ORDER BY rt_id LIMIT 1")
+        _FIRST_RT_ID_CACHE = row['rt_id'] if row else None
+    return _FIRST_RT_ID_CACHE
 
 
 def update_user_profile(role: str, user_id: int, nama: str, no_telp: str, alamat: str = None, email: str = None):

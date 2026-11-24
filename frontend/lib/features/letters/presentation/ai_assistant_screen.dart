@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -74,6 +75,36 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
   ];
   bool _loadingAi = false;
 
+  // Percakapan lanjutan & evaluasi AI
+  static const _maxRiwayat = 4;
+  final List<String> _riwayat = []; // pesan warga yang sudah diproses AI
+  final Set<String> _diubahManual = {}; // kolom yang diubah/diisi sendiri oleh warga
+  Map<String, String> _nilaiAi = {}; // kolom -> nilai dari AI (untuk catatan ketepatan)
+  String? _modelAi;
+  bool _tanyaLanjut = false; // asisten menunggu jawaban lanjutan di chat
+  List<String> _tujuanSaran = const [];
+  List<String> _syarat = const [];
+  String? _lampiranPath;
+  String? _lampiranNama;
+
+  // Biodata tersimpan (dicek saat layar dibuka) -> peringatan bila belum lengkap
+  bool _biodataChecked = false;
+  bool _wargaBaru = false;
+  List<String> _biodataKurang = const [];
+  static const _labelBiodata = {
+    'pekerjaan': 'Pekerjaan',
+    'jenis_kelamin': 'Jenis kelamin',
+    'tempat_lahir': 'Tempat lahir',
+    'tanggal_lahir': 'Tanggal lahir',
+    'agama': 'Agama',
+    'status_kawin': 'Status perkawinan',
+    'kewarganegaraan': 'Kewarganegaraan',
+    'nomor_kk': 'Nomor KK',
+  };
+  static const _contohCeritaLengkap =
+      'Saya butuh surat pengantar SKCK untuk melamar kerja di PT Maju Jaya. '
+      'Saya laki-laki, lahir di Surabaya 12 Mei 2001, karyawan swasta, belum kawin.';
+
   // Langkah 2: isian formulir
   final _formKey = GlobalKey<FormState>();
   final _keperluanController = TextEditingController();
@@ -98,6 +129,34 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
 
   // Langkah 3
   bool _setuju = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _cekBiodataTersimpan();
+  }
+
+  Future<void> _cekBiodataTersimpan() async {
+    try {
+      final data = await ref.read(letterRepositoryProvider).getMyLastApplicantData();
+      if (!mounted) return;
+      final kurang = <String>[];
+      if (data != null) {
+        for (final entry in _labelBiodata.entries) {
+          final value = data[entry.key]?.toString().trim() ?? '';
+          final invalidKk = entry.key == 'nomor_kk' && !RegExp(r'^\d{16}$').hasMatch(value);
+          if (value.isEmpty || invalidKk) kurang.add(entry.value);
+        }
+      }
+      setState(() {
+        _wargaBaru = data == null;
+        _biodataKurang = kurang;
+        _biodataChecked = true;
+      });
+    } catch (_) {
+      // Gagal cek tidak menghalangi pengajuan; kekurangan tetap ditandai di layar Hasil.
+    }
+  }
 
   @override
   void dispose() {
@@ -128,17 +187,39 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
     _scrollToBottom();
 
     try {
-      final result = await ref.read(letterRepositoryProvider).aiFill(pesan);
+      final result = await ref
+          .read(letterRepositoryProvider)
+          .aiFill(pesan, riwayat: _riwayat.length > _maxRiwayat
+              ? _riwayat.sublist(_riwayat.length - _maxRiwayat)
+              : List.of(_riwayat));
       if (!mounted) return;
+      _riwayat.add(pesan);
       _terapkanHasil(result);
       final aiDipakai = result['ai_digunakan'] == true;
+      // Percakapan lanjutan: bila jenis/keperluan/tujuan masih kosong, asisten bertanya di chat.
+      final belumJelas = [
+        if (_jenisSuratId == null) 'jenis surat',
+        if (_keperluanController.text.trim().isEmpty) 'keperluan',
+        if (_tujuanController.text.trim().isEmpty) 'tujuan surat',
+      ];
+      final lanjut = aiDipakai && belumJelas.isNotEmpty && _riwayat.length <= _maxRiwayat;
       setState(() {
         _loadingAi = false;
-        _messages.add(_ChatMessage(aiDipakai
-            ? 'Formulir sudah saya isi. Silakan periksa dulu sebelum diajukan.'
-            : (result['pesan']?.toString() ??
-                'Asisten AI sedang tidak tersedia. Formulir diisi dari data sebelumnya.')));
-        _step = _Step.hasil;
+        if (lanjut) {
+          _tanyaLanjut = true;
+          _messages.add(_ChatMessage(_pertanyaan?.isNotEmpty == true
+              ? _pertanyaan!
+              : (belumJelas.length == 1 && belumJelas.first == 'tujuan surat'
+                  ? 'Surat ini akan diserahkan ke instansi mana?'
+                  : 'Boleh lengkapi ${belumJelas.join(' dan ')}-nya?')));
+        } else {
+          _tanyaLanjut = false;
+          _messages.add(_ChatMessage(aiDipakai
+              ? 'Formulir sudah saya isi. Silakan periksa dulu sebelum diajukan.'
+              : (result['pesan']?.toString() ??
+                  'Asisten AI sedang tidak tersedia. Formulir diisi dari data sebelumnya.')));
+          _step = _Step.hasil;
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -159,25 +240,45 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
     String text(String k) => data[k]?.toString() ?? '';
     String? option(String k, List<String> opts) => opts.contains(data[k]) ? data[k] as String : null;
 
-    final jenis = r['jenis_surat'] == null ? null : Map<String, dynamic>.from(r['jenis_surat'] as Map);
-    _jenisSuratId = jenis?['jenis_surat_id'] as int? ?? _jenisSuratId;
-    _jenisDariAi = jenis != null;
-    final keperluan = r['keperluan']?.toString() ?? '';
-    if (keperluan.isNotEmpty) _keperluanController.text = keperluan;
-    _keperluanDariAi = keperluan.isNotEmpty;
-    final metode = r['metode_tanda_tangan']?.toString();
-    if (metode == 'digital' || metode == 'basah') _metodeTtd = metode!;
+    bool bebas(String key) => !_diubahManual.contains(key); // isian warga tidak ditimpa AI
+    void isi(TextEditingController c, String key, String value, {bool keepIfEmpty = false}) {
+      if (!bebas(key)) return;
+      if (value.isEmpty && keepIfEmpty) return;
+      c.text = value;
+    }
 
-    _pekerjaanController.text = text('pekerjaan');
-    _tempatLahirController.text = text('tempat_lahir');
-    _kewarganegaraanController.text = text('kewarganegaraan').isEmpty ? 'WNI' : text('kewarganegaraan');
-    _nomorKkController.text = text('nomor_kk');
-    _tujuanController.text = text('tujuan');
-    _keteranganController.text = text('keterangan_lain');
-    _jenisKelamin = option('jenis_kelamin', _jenisKelaminOptions);
-    _agama = option('agama', _agamaOptions);
-    _statusKawin = option('status_kawin', _statusKawinOptions);
-    _tanggalLahir = DateTime.tryParse(text('tanggal_lahir'));
+    final jenis = r['jenis_surat'] == null ? null : Map<String, dynamic>.from(r['jenis_surat'] as Map);
+    if (bebas('jenis_surat') && jenis != null) {
+      _jenisSuratId = jenis['jenis_surat_id'] as int?;
+      _jenisDariAi = true;
+    }
+    final keperluan = r['keperluan']?.toString() ?? '';
+    if (bebas('keperluan') && keperluan.isNotEmpty) {
+      _keperluanController.text = keperluan;
+      _keperluanDariAi = true;
+    }
+    final metode = r['metode_tanda_tangan']?.toString();
+    if (bebas('metode_tanda_tangan') && (metode == 'digital' || metode == 'basah')) _metodeTtd = metode!;
+
+    isi(_pekerjaanController, 'pekerjaan', text('pekerjaan'));
+    isi(_tempatLahirController, 'tempat_lahir', text('tempat_lahir'));
+    isi(_kewarganegaraanController, 'kewarganegaraan',
+        text('kewarganegaraan').isEmpty ? 'WNI' : text('kewarganegaraan'));
+    isi(_nomorKkController, 'nomor_kk', text('nomor_kk'));
+    isi(_tujuanController, 'tujuan', text('tujuan'), keepIfEmpty: true);
+    isi(_keteranganController, 'keterangan_lain', text('keterangan_lain'), keepIfEmpty: true);
+    if (bebas('jenis_kelamin')) _jenisKelamin = option('jenis_kelamin', _jenisKelaminOptions);
+    if (bebas('agama')) _agama = option('agama', _agamaOptions);
+    if (bebas('status_kawin')) _statusKawin = option('status_kawin', _statusKawinOptions);
+    if (bebas('tanggal_lahir')) _tanggalLahir = DateTime.tryParse(text('tanggal_lahir'));
+
+    // Panduan jenis surat (pilihan tujuan cepat & dokumen yang perlu disiapkan)
+    final panduan = r['panduan'] is Map ? Map<String, dynamic>.from(r['panduan'] as Map) : null;
+    if (panduan != null) {
+      _tujuanSaran = [for (final t in (panduan['tujuan_saran'] as List? ?? const [])) t.toString()];
+      _syarat = [for (final t in (panduan['syarat'] as List? ?? const [])) t.toString()];
+    }
+    _modelAi = r['model']?.toString() ?? _modelAi;
 
     // Hanya sumber yang diketahui; field kosong ditandai "Perlu diisi" saat ditampilkan,
     // field yang diketik sendiri oleh warga tidak diberi label.
@@ -189,13 +290,70 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
         'bawaan' => _Sumber.bawaan,
         _ => null,
       };
-      if (s != null) _sumber[f] = s;
+      if (s != null && !_diubahManual.contains(f)) _sumber[f] = s;
+    }
+    // Catat nilai yang diisi AI untuk menghitung ketepatan saat pengajuan dikirim.
+    if (r['ai_digunakan'] == true) {
+      _nilaiAi = {
+        for (final f in [..._biodataFields, 'tujuan', 'keterangan_lain'])
+          if (_sumber[f] == _Sumber.ai) f: _nilaiSekarang(f),
+        if (_jenisDariAi && _jenisSuratId != null) 'jenis_surat': _nilaiSekarang('jenis_surat'),
+        if (_keperluanDariAi) 'keperluan': _nilaiSekarang('keperluan'),
+      };
     }
     _sudahDiisi = true;
     _pertanyaan = r['pertanyaan']?.toString();
     // Biodata lengkap -> tampil ringkas; ada yang kosong -> langsung bisa diisi.
     _editBiodata = !_biodataLengkap;
     _setuju = false;
+  }
+
+  String _nilaiSekarang(String key) => switch (key) {
+        'jenis_surat' => '${_jenisSuratId ?? ''}',
+        'keperluan' => _keperluanController.text.trim(),
+        'tujuan' => _tujuanController.text.trim(),
+        'keterangan_lain' => _keteranganController.text.trim(),
+        'pekerjaan' => _pekerjaanController.text.trim(),
+        'tempat_lahir' => _tempatLahirController.text.trim(),
+        'kewarganegaraan' => _kewarganegaraanController.text.trim(),
+        'nomor_kk' => _nomorKkController.text.trim(),
+        'jenis_kelamin' => _jenisKelamin ?? '',
+        'agama' => _agama ?? '',
+        'status_kawin' => _statusKawin ?? '',
+        'tanggal_lahir' => _tanggalLahir == null ? '' : _isoTanggal(_tanggalLahir!),
+        _ => '',
+      };
+
+  void _tandaiManual(String key) {
+    _diubahManual.add(key);
+    _sumber.remove(key);
+  }
+
+  /// Catatan asisten AI yang dikirim bersama pengajuan (untuk statistik ketepatan AI).
+  Map<String, dynamic>? get _aiMeta {
+    if (_modelAi == null || _nilaiAi.isEmpty) return null;
+    return {
+      'model': _modelAi,
+      'jumlah_pesan': _riwayat.isEmpty ? 1 : _riwayat.length,
+      'kolom_ai': _nilaiAi.keys.toList(),
+      'kolom_diubah': [
+        for (final e in _nilaiAi.entries)
+          if (_nilaiSekarang(e.key) != e.value) e.key,
+      ],
+    };
+  }
+
+  Future<void> _pilihLampiran() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
+    );
+    if (result != null && result.files.single.path != null) {
+      setState(() {
+        _lampiranPath = result.files.single.path;
+        _lampiranNama = result.files.single.name;
+      });
+    }
   }
 
   bool get _biodataLengkap =>
@@ -233,6 +391,8 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
           jenisSuratId: _jenisSuratId!,
           keperluan: _keperluanController.text.trim(),
           metodeTandaTangan: _metodeTtd,
+          lampiranPath: _lampiranPath,
+          aiMeta: _aiMeta,
           dataPemohon: {
             'pekerjaan': _pekerjaanController.text.trim(),
             'jenis_kelamin': _jenisKelamin ?? '',
@@ -285,7 +445,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
     if (picked != null) {
       setState(() {
         _tanggalLahir = picked;
-        _sumber.remove('tanggal_lahir');
+        _tandaiManual('tanggal_lahir');
       });
     }
   }
@@ -404,9 +564,33 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
             children: [
               for (final (i, m) in _messages.indexed) ...[
                 _bubble(m),
+                if (i == 0) _biodataNotice(),
                 if (i == 0 && _messages.length == 1) _quickChips(),
                 const SizedBox(height: 14),
               ],
+              // Jawaban cepat untuk pertanyaan tujuan surat
+              if (_tanyaLanjut && !_loadingAi && _tujuanSaran.isNotEmpty && _tujuanController.text.trim().isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(left: 42, bottom: 14),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final t in _tujuanSaran)
+                        ActionChip(
+                          label: Text(t),
+                          labelStyle: AppTypography.labelMedium.copyWith(color: AppColors.primaryBrand, fontSize: 13),
+                          backgroundColor: AppColors.primaryBg,
+                          side: const BorderSide(color: AppColors.primaryContainer),
+                          shape: const StadiumBorder(),
+                          onPressed: () {
+                            _pesanController.text = t;
+                            _kirimPesan();
+                          },
+                        ),
+                    ],
+                  ),
+                ),
               if (_loadingAi) _typingBubble(),
               if (sudahAdaHasil && !_loadingAi)
                 Align(
@@ -536,6 +720,84 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
         ],
       );
 
+  /// Warga lama dengan biodata tersimpan yang belum lengkap -> peringatan.
+  /// Warga baru -> contoh cerita lengkap yang bisa langsung dipakai.
+  Widget _biodataNotice() {
+    if (!_biodataChecked || (!_wargaBaru && _biodataKurang.isEmpty)) return const SizedBox.shrink();
+
+    final sensitif = _biodataKurang.where((f) => f == 'Agama' || f == 'Nomor KK').toList();
+    final bisaDiceritakan = _biodataKurang.where((f) => !sensitif.contains(f)).toList();
+    final (bg, border, fg, icon, judul) = _wargaBaru
+        ? (AppColors.primaryBg, AppColors.primaryContainer, const Color(0xFF1E3A8A),
+            Icons.lightbulb_outline_rounded, 'Belum ada biodata tersimpan')
+        : (const Color(0xFFFFFBEB), const Color(0xFFFDE68A), const Color(0xFF78350F),
+            Icons.warning_amber_rounded, 'Biodata tersimpan belum lengkap');
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 42, top: 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: bg,
+          border: Border.all(color: border),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(icon, size: 18, color: fg),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(judul,
+                    style: AppTypography.labelMedium.copyWith(color: fg, fontWeight: FontWeight.w700)),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            if (_wargaBaru) ...[
+              Text(
+                'Sebutkan juga jenis kelamin, tempat & tanggal lahir, pekerjaan, dan status perkawinan '
+                'di ceritamu. Contoh:',
+                style: AppTypography.caption.copyWith(color: fg, height: 1.5),
+              ),
+              const SizedBox(height: 6),
+              Text('"$_contohCeritaLengkap"',
+                  style: AppTypography.caption.copyWith(color: fg, height: 1.5, fontStyle: FontStyle.italic)),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: _loadingAi
+                      ? null
+                      : () => setState(() {
+                            _pesanController.text = _contohCeritaLengkap;
+                            _pesanController.selection =
+                                TextSelection.collapsed(offset: _pesanController.text.length);
+                          }),
+                  child: const Text('Pakai contoh ini'),
+                ),
+              ),
+            ] else ...[
+              Text(
+                'Belum terisi: ${_biodataKurang.join(', ')}.',
+                style: AppTypography.caption.copyWith(color: fg, height: 1.5, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                [
+                  if (bisaDiceritakan.isNotEmpty) 'Sebutkan ${bisaDiceritakan.join(', ').toLowerCase()} di ceritamu.',
+                  if (sensitif.isNotEmpty)
+                    '${sensitif.join(' dan ')} diisi di formulir pada langkah berikutnya (tidak dikirim ke AI).',
+                ].join(' '),
+                style: AppTypography.caption.copyWith(color: fg, height: 1.5),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _privacyNote() => Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -638,6 +900,8 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
                 if (kurang.isNotEmpty) ...[_bannerKurang(kurang), const SizedBox(height: 14)],
                 _sectionSuratIni(),
                 const SizedBox(height: 14),
+                _sectionSyarat(),
+                const SizedBox(height: 14),
                 _sectionBiodata(),
               ],
             ),
@@ -688,6 +952,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
                 onSelected: (id) => setState(() {
                   _jenisSuratId = id;
                   _jenisDariAi = false;
+                  _tandaiManual('jenis_surat');
                 }),
                 itemBuilder: (_) => [
                   for (final t in types)
@@ -702,7 +967,10 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
               minLines: 1,
               style: AppTypography.bodyMedium.copyWith(color: Colors.white),
               cursorColor: Colors.white,
-              onChanged: (_) => setState(() => _keperluanDariAi = false),
+              onChanged: (_) => setState(() {
+                _keperluanDariAi = false;
+                _tandaiManual('keperluan');
+              }),
               validator: (v) => (v == null || v.trim().length < 5) ? 'Keperluan wajib diisi' : null,
               decoration: InputDecoration(
                 labelText: 'Keperluan',
@@ -825,6 +1093,54 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
         ]),
       );
 
+  /// Dokumen yang perlu disiapkan (dari panduan jenis surat) + unggah lampiran opsional.
+  Widget _sectionSyarat() => _card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Dokumen yang perlu disiapkan',
+                style: AppTypography.labelLarge.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            if (_syarat.isEmpty)
+              Text('Pilih jenis surat untuk melihat dokumen persyaratan.',
+                  style: AppTypography.caption.copyWith(color: AppColors.textMuted))
+            else
+              for (final item in _syarat)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Icon(Icons.check_circle_outline_rounded, size: 16, color: AppColors.primaryBrand),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(item, style: AppTypography.bodySmall)),
+                  ]),
+                ),
+            const SizedBox(height: 8),
+            if (_lampiranNama == null)
+              OutlinedButton.icon(
+                onPressed: _pilihLampiran,
+                icon: const Icon(Icons.attach_file_rounded, size: 18),
+                label: const Text('Unggah lampiran (opsional)'),
+              )
+            else
+              Row(children: [
+                const Icon(Icons.description_outlined, size: 18, color: AppColors.primaryBrand),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(_lampiranNama!, overflow: TextOverflow.ellipsis, style: AppTypography.bodySmall),
+                ),
+                IconButton(
+                  tooltip: 'Hapus lampiran',
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  onPressed: () => setState(() {
+                    _lampiranPath = null;
+                    _lampiranNama = null;
+                  }),
+                ),
+              ]),
+          ],
+        ),
+      );
+
   Widget _sectionSuratIni() => _card(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -835,10 +1151,28 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
                 sumber: _tujuanController.text.trim().isEmpty ? _Sumber.kosong : _sumber['tujuan']),
             TextFormField(
               controller: _tujuanController,
-              onChanged: (_) => setState(() => _sumber.remove('tujuan')),
+              onChanged: (_) => setState(() => _tandaiManual('tujuan')),
               validator: (v) => (v == null || v.trim().isEmpty) ? 'Tujuan surat wajib diisi' : null,
               decoration: _dekor('Contoh: Polrestabes Surabaya'),
             ),
+            if (_tujuanSaran.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  for (final t in _tujuanSaran)
+                    ChoiceChip(
+                      label: Text(t),
+                      selected: _tujuanController.text.trim() == t,
+                      onSelected: (_) => setState(() {
+                        _tujuanController.text = t;
+                        _tandaiManual('tujuan');
+                      }),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 12),
             _label('Keterangan lain (opsional)'),
             TextFormField(
@@ -861,7 +1195,10 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
   Widget _pilihanTtd(String value, String label) {
     final selected = _metodeTtd == value;
     return OutlinedButton(
-      onPressed: () => setState(() => _metodeTtd = value),
+      onPressed: () => setState(() {
+        _metodeTtd = value;
+        _diubahManual.add('metode_tanda_tangan');
+      }),
       style: OutlinedButton.styleFrom(
         minimumSize: const Size.fromHeight(44),
         backgroundColor: selected ? AppColors.primaryBg : Colors.white,
@@ -955,7 +1292,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
               decoration: _dekor('Pilih ${label.toLowerCase()}'),
               items: [for (final o in opts) DropdownMenuItem(value: o, child: Text(o))],
               onChanged: (v) {
-                _sumber.remove(key);
+                _tandaiManual(key);
                 onChanged(v);
               },
               validator: (v) => v == null ? '$label wajib dipilih' : null,
@@ -973,7 +1310,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
               keyboardType: type,
               maxLength: maxLength,
               inputFormatters: type == TextInputType.number ? [FilteringTextInputFormatter.digitsOnly] : null,
-              onChanged: (_) => setState(() => _sumber.remove(key)),
+              onChanged: (_) => setState(() => _tandaiManual(key)),
               validator: validator ?? (v) => (v == null || v.trim().isEmpty) ? '$label wajib diisi' : null,
               decoration: _dekor(hint).copyWith(counterText: ''),
             ),
@@ -1069,6 +1406,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
                 child: Column(children: [
                   _barisRingkas('Jenis surat', _namaJenis(types), first: true),
                   _barisRingkas('Tanda tangan', _metodeTtd == 'digital' ? 'Digital (PDF)' : 'Basah (cetak)'),
+                  _barisRingkas('Lampiran', _lampiranNama ?? '-'),
                   _barisRingkas('Status', 'Menunggu persetujuan Ketua RT'),
                 ]),
               ),

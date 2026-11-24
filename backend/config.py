@@ -69,6 +69,14 @@ class Config:
     RT_LOCATION_LINE_3 = os.getenv('RT_LOCATION_LINE_3', 'KECAMATAN KARANG PILANG, KOTA SURABAYA — JAWA TIMUR')
     RT_SIGNING_LOCATION = os.getenv('RT_SIGNING_LOCATION', 'Surabaya')
 
+    # Aturan Kerja Bakti Rutin (Demo / Simulasi)
+    KERJA_BAKTI_SCHEDULE = {
+        'rule_text': 'Kerja bakti rutin dilaksanakan pada hari Minggu pertama setiap bulan.',
+        'frequency': 'monthly',
+        'week_number': 1,
+        'day_of_week': 6,  # 6 = Minggu
+    }
+
     # Identitas wilayah & pengurus untuk Surat Pengantar / Keterangan
     RT_PERUMAHAN = os.getenv('RT_PERUMAHAN', 'Gunungsari Indah')
     RT_KELURAHAN = os.getenv('RT_KELURAHAN', 'Kedurus')

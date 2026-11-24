@@ -4,6 +4,7 @@ Modul ini sengaja tidak bergantung pada sentence-transformers/BM25 supaya
 bisa dipakai oleh API Flask yang ringan.
 """
 
+import datetime
 import re
 
 
@@ -138,6 +139,12 @@ def semua_topik(teks):
     if "surat keterangan" in q and "kecamatan" in q:
         found.append("kecamatan")
 
+    if re.search(r"\biuran\b", q):
+        found.append("iuran")
+
+    if re.search(r"kerja bakti", q):
+        found.append("kerja_bakti")
+
     return found
 
 
@@ -154,6 +161,8 @@ TOPIK_KATA_KUNCI = {
     "nib": "NIB usaha rumahan",
     "kecamatan": "surat keterangan kecamatan",
     "kematian": "kematian",
+    "iuran": "iuran",
+    "kerja_bakti": "kerja bakti",
 }
 
 AKSI_KATA_KUNCI = {
@@ -170,7 +179,7 @@ AKSI_KATA_KUNCI = {
 }
 
 POLA_RUJUKAN_KONTEKS = re.compile(
-    r"\b(kalau|kalo|itu|tersebut|tadi|sebelumnya|terus|lanjut|selanjutnya|begitu|demikian)\b|nya\b",
+    r"\b(kalau|kalo|itu|tersebut|tadi|sebelumnya|terus|lanjut|selanjutnya|begitu|demikian|jam berapa|mulai jam|pukul berapa|dimana|di mana|titik kumpul|lokasi|bawa apa)\b|nya\b",
     re.IGNORECASE,
 )
 
@@ -212,8 +221,11 @@ def konteks_pertanyaan(query, riwayat):
         # beraksi generik: wariskan aksi spesifik pembahasan sebelumnya
         # (mis. "hilang") agar dokumen yang tepat yang terangkat.
         for teks in reversed(riwayat):
+            previous_topics = semua_topik(teks)
+            if previous_topics and previous_topics[0] != topiks[0]:
+                break  # Jangan wariskan aksi dari topik yang lebih lama.
             aksi = aksi_pertanyaan(teks)
-            if aksi and aksi != aksi_query:
+            if aksi and aksi not in ("persyaratan", "prosedur"):
                 kata.append(AKSI_KATA_KUNCI.get(aksi, aksi))
                 break
     return f"{query} {' '.join(kata)}"
@@ -301,12 +313,15 @@ def is_local_context_question(pertanyaan):
     """True jika pertanyaan membahas konteks yang dimiliki KB lokal RT."""
     q = normalisasi(pertanyaan)
     return bool(
-        re.search(r"\b(rt|ketua rt)\b", q)
-        and re.search(
-            r"surat|pengantar|iuran|kas|balai|kerja bakti|"
-            r"tanda tangan|sku|domisili",
-            q,
+        (
+            re.search(r"\b(rt|ketua rt)\b", q)
+            and re.search(
+                r"surat|pengantar|iuran|kas|balai|kerja bakti|"
+                r"tanda tangan|sku|domisili",
+                q,
+            )
         )
+        or re.search(r"kerja bakti", q)
     )
 
 
@@ -689,12 +704,12 @@ def batasan(
     return "LUAR_CAKUPAN"
 
 
-def klarifikasi_layanan_umum(pertanyaan: str) -> str | None:
-    """Deteksi pertanyaan umum mengenai layanan yang memiliki banyak cabang prosedur.
+def klarifikasi_layanan_umum(pertanyaan: str) -> dict | str | None:
+    """Deteksi pertanyaan umum mengenai layanan yang memiliki banyak cabang prosedur
+    atau membutuhkan konfirmasi data mutakhir pengurus RT.
 
-    Jika pengguna bertanya secara umum (misalnya 'mau mengurus KTP' atau 'bagaimana mengurus KK'
-    atau 'aku baru pindah') tanpa menyebutkan keperluan spesifik (hilang/rusak/perekaman 17/ubah data),
-    ajukan klarifikasi singkat yang memandu pengguna alih-alih asal memilih dokumen secara sepihak.
+    Mengembalikan dict berisi answer, citation, status, dan is_escalated bila ada informasi spesifik,
+    atau str berisi pertanyaan klarifikasi terarah, atau None bila kueri spesifik.
     """
     q = normalisasi(pertanyaan).strip()
     topiks = semua_topik(q)
@@ -727,13 +742,152 @@ def klarifikasi_layanan_umum(pertanyaan: str) -> str | None:
                 "3. Perubahan elemen data KK. Layanan mana yang Anda butuhkan?"
             )
 
-    # 3. Kasus baru pindah tanpa aksi spesifik
+    # 3. Kasus Pindah Domisili Umum di Surabaya (RTC-019 kontrakan vs RTC-020 verifikasi alamat)
+    # Jika sumber tidak cukup, langsung sediakan eskalasi WhatsApp dengan draf pertanyaan warga
+    if "domisili" in topiks and re.search(r"pindah", q):
+        if not re.search(r"kontrakan|sewa|sewaan|pemilik rumah|sptjm|fiktif|tidak tinggal|tidak ditempati|verifikasi tempat tinggal", q):
+            return {
+                'answer': (
+                    "Informasi umum kepindahan domisili belum sepenuhnya tersedia pada basis pengetahuan RTConnect. "
+                    "Dokumen resmi yang tercatat saat ini mencakup pindah datang ke rumah kontrakan dan verifikasi alamat tempat tinggal. "
+                    "Silakan konfirmasi prosedur kepindahan domisili Anda kepada pengurus RT melalui tombol WhatsApp di bawah."
+                ),
+                'status': 'KLARIFIKASI_DIBUTUHKAN',
+                'is_escalated': True,
+                'citation': None,
+            }
+
+    # Kasus baru pindah tanpa aksi spesifik
     if "domisili" in topiks and re.search(r"\b(baru pindah|baru datang|pindah ke sini)\b", q):
         if not re.search(r"kontrakan|sewa|kos|surat pindah|sptjm|verifikasi", q):
-            return (
-                "Selamat datang di lingkungan RT 04 / RW 09 Gunungsari Indah. "
-                "Untuk warga yang baru pindah, apakah Anda menempati rumah kontrakan/sewa, "
-                "atau sedang mengurus surat kepindahan domisili resmi?"
-            )
+            return {
+                'answer': (
+                    "Selamat datang di lingkungan RT 04 / RW 09 Gunungsari Indah. "
+                    "Untuk pelaporan warga baru pindah dan pengurusan surat domisili, "
+                    "silakan konfirmasi langsung kepada pengurus RT melalui tombol WhatsApp di bawah."
+                ),
+                'status': 'KLARIFIKASI_DIBUTUHKAN',
+                'is_escalated': True,
+                'citation': None,
+            }
+
+    # 4. Kasus Surat Domisili Usaha / SKU
+    # Jelaskan layanan SKU yang tersedia di RTConnect, bedakan NIB OSS dan Kelurahan, sediakan eskalasi
+    if re.search(r"\b(domisili (?:untuk )?usaha|surat domisili (?:untuk )?usaha|surat usaha|sku|keterangan usaha)\b", q):
+        return {
+            'answer': (
+                "Di RTConnect tersedia layanan Surat Keterangan Usaha (SKU) tingkat RT untuk warga yang memiliki tempat usaha fisik. "
+                "Untuk perizinan resmi nasional (NIB) diterbitkan melalui portal OSS, sedangkan Surat Domisili Lembaga diterbitkan di kantor kelurahan. "
+                "Jika Anda memerlukan surat pengantar khusus lainnya, silakan konfirmasi kepada pengurus RT melalui tombol WhatsApp di bawah."
+            ),
+            'status': 'KLARIFIKASI_DIBUTUHKAN',
+            'is_escalated': True,
+            'citation': None,
+        }
 
     return None
+
+
+def build_escalation_summary(
+    query: str,
+    query_efektif: str | None = None,
+    history: list | None = None,
+    ref_date: datetime.date | None = None,
+) -> str:
+    """Susun ringkasan pertanyaan warga yang setia pada maksud dan bebas PII/kredensial.
+
+    Format ringkasan digunakan sebagai isi draf pesan WhatsApp eskalasi ke Ketua RT (SRS REQ-6).
+    """
+    # 1. Cek keamanan: jika mengandung data rahasia / kredensial
+    if is_sensitive_credential_for_storage(query) or (
+        query_efektif and is_sensitive_credential_for_storage(query_efektif)
+    ):
+        return "Pertanyaan seputar layanan administrasi warga."
+
+    # 2. Sanitasi data sensitif: bersihkan NIK, nomor HP, dan digit sensitif
+    q_clean = query.strip()
+    q_clean = re.sub(r'\b(nik|no hp|nomor hp|hp|telepon)\s*(?:saya)?\s*[:=]?\s*[0-9*+\-\s]{8,25}\b', '', q_clean, flags=re.IGNORECASE)
+    q_clean = re.sub(r'\b[0-9*+\-]{10,20}\b', '', q_clean)
+    q_clean = re.sub(r'^\s*(?:dan|lalu|serta)\s+', '', q_clean, flags=re.IGNORECASE)
+    q_clean = re.sub(r'\s{2,}', ' ', q_clean).strip(' ,;:-')
+
+    q_norm = normalisasi(q_clean)
+    eff_norm = normalisasi(mask_pii(query_efektif or query))
+
+    # 3. Deteksi topik aktif dari riwayat sesi jika pertanyaan pendek/lanjutan
+    hist_topic = None
+    if history:
+        for h in reversed(history):
+            h_norm = normalisasi(str(h))
+            if 'kerja bakti' in h_norm:
+                hist_topic = 'kerja_bakti'
+                break
+            if 'iuran' in h_norm:
+                hist_topic = 'iuran'
+                break
+            if 'skck' in h_norm:
+                hist_topic = 'skck'
+                break
+            if 'sku' in h_norm or 'usaha' in h_norm:
+                hist_topic = 'sku'
+                break
+            if 'domisili' in h_norm:
+                hist_topic = 'domisili'
+                break
+
+    # 4. Pertanyaan lanjutan pendek tentang jam / waktu pelaksanaan
+    if re.search(r'^(?:mulai\s+)?(?:jam|pukul)\s+berapa\??$', q_norm) or (
+        len(q_norm.split()) <= 4 and re.search(r'\b(jam berapa|pukul berapa)\b', q_norm) and 'kerja bakti' not in q_norm
+    ):
+        if hist_topic == 'kerja_bakti' or 'kerja bakti' in eff_norm:
+            return 'Saya ingin menanyakan jam mulai kerja bakti.'
+        if hist_topic == 'iuran' or 'iuran' in eff_norm:
+            return 'Saya ingin menanyakan jadwal pembayaran iuran lingkungan.'
+
+    # 5. Pertanyaan lanjutan pendek tentang titik kumpul / lokasi
+    if re.search(r'^(?:kumpul\s+di\s+mana|titik\s+kumpulnya\s+di\s+mana|lokasinya\s+di\s+mana)\??$', q_norm) or (
+        len(q_norm.split()) <= 4 and re.search(r'\b(titik kumpul|kumpul di mana|lokasi kumpul)\b', q_norm) and 'kerja bakti' not in q_norm
+    ):
+        if hist_topic == 'kerja_bakti' or 'kerja bakti' in eff_norm:
+            return 'Saya ingin menanyakan titik kumpul pelaksanaan kerja bakti.'
+
+    # 6. Jika pembersihan PII menyisakan fragmen pendek seperti 'mau tanya iuran'
+    if q_norm in ('mau tanya iuran', 'tanya iuran', 'tentang iuran'):
+        return 'Saya ingin menanyakan informasi iuran lingkungan RT.'
+
+    # 7. Utamakan pertanyaan asli warga yang telah disanitasi:
+    # Mempertahankan semua maksud (biaya dan waktu, jam dan lokasi, konfirmasi bayar, dll.)
+    res = re.sub(r'[\r\n]+', ' ', q_clean).strip()
+    if not res:
+        return 'Pertanyaan seputar layanan administrasi warga.'
+    res = res[0].upper() + res[1:]
+    if not res.endswith('?'):
+        res = res.rstrip('.') + '.'
+
+    # Pertahankan pertanyaan warga; tambahkan konteks untuk rujukan seperti
+    # 'syaratnya' / 'caranya', tanpa menyalin riwayat atau data pribadi.
+    if not semua_topik(query) and rujukan_konteks(query):
+        effective = query_efektif or konteks_pertanyaan(query, history or [])
+        topics = semua_topik(effective)
+        if len(topics) == 1:
+            topic = topics[0]
+            label = {'ktp': 'KTP', 'kk': 'Kartu Keluarga', 'skck': 'SKCK',
+                     'nib': 'NIB'}.get(topic, topic.replace('_', ' '))
+            action = aksi_pertanyaan(effective)
+            # Ungkapkan konteks sebagai kalimat warga, bukan metadata teknis.
+            # Jangan mengklaim kepemilikan dokumen atau menambah syarat layanan.
+            if topic in ('ktp', 'kk', 'skck', 'nib'):
+                if action in ('hilang', 'rusak'):
+                    context = f'penggantian {label} yang {action}'
+                elif action == 'perubahan':
+                    context = f'perubahan data pada {label}'
+                elif action == 'perekaman' and topic == 'ktp':
+                    context = 'perekaman KTP pertama kali'
+                else:
+                    context = label
+                prefix = f'Untuk mengurus {context}'
+            else:
+                prefix = f'Terkait {label}'
+            # Pertahankan seluruh pertanyaan, termasuk biaya DAN waktu, dll.
+            res = f'{prefix}, {res[0].lower() + res[1:]}'
+    return res

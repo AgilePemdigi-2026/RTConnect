@@ -41,6 +41,12 @@ class _Config:
     OPENAI_API_KEY = ""
     EMBEDDING_API_KEY = ""
     TANYART_LLM_TIMEOUT = 5.0
+    KERJA_BAKTI_SCHEDULE = {
+        'rule_text': 'Kerja bakti rutin dilaksanakan pada hari Minggu pertama setiap bulan.',
+        'frequency': 'monthly',
+        'week_number': 1,
+        'day_of_week': 6,
+    }
 
 
 _cfg.Config = _Config
@@ -106,7 +112,7 @@ BYLAWS = [
         [
             "1. Iuran kas kebersihan dan keamanan RT 04 dibayarkan paling lambat tanggal 10 setiap bulannya.",
             "2. Penggunaan balai warga di RT 04 untuk hajatan atau acara warga wajib melapor kepada Ketua RT minimal 7 hari sebelumnya.",
-            "3. Kerja bakti saluran air dan kebersihan RT 04 dilaksanakan setiap hari Minggu pertama awal bulan.",
+            f"3. {_Config.KERJA_BAKTI_SCHEDULE['rule_text']}",
         ],
     ),
 ]

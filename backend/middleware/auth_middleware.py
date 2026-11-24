@@ -1,5 +1,6 @@
 import datetime
 from functools import wraps
+import time
 from flask import request, jsonify
 import jwt
 from config import Config
@@ -20,6 +21,8 @@ def jwt_required(f):
     """Decorator untuk memverifikasi JWT Bearer Token"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        if not hasattr(request, '_t_req_start'):
+            request._t_req_start = time.perf_counter()
         auth_header = request.headers.get('Authorization')
         if auth_header and auth_header.startswith('Bearer '):
             token = auth_header.split(' ')[1]
