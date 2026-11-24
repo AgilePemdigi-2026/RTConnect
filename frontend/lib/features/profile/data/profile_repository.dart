@@ -93,4 +93,43 @@ class ProfileRepository {
       return null;
     }
   }
+
+  Future<String> updateAvatar({
+    required List<int> fileBytes,
+    required String fileName,
+  }) async {
+    final payload = FormData.fromMap({
+      'foto': MultipartFile.fromBytes(
+        fileBytes,
+        filename: fileName,
+      ),
+    });
+
+    final response = await _apiClient.dio.post<Map<String, dynamic>>(
+      ApiEndpoints.updateAvatar,
+      data: payload,
+    );
+    final data = response.data!['data'] as Map<String, dynamic>;
+    return data['foto_profil']?.toString() ?? '';
+  }
+
+  Future<Uint8List?> getAvatarBytes([String? customPath]) async {
+    try {
+      final endpoint = (customPath != null && customPath.isNotEmpty)
+          ? ApiEndpoints.fileUrl(customPath)
+          : ApiEndpoints.getAvatar;
+      final response = await _apiClient.dio.get<List<int>>(
+        endpoint,
+        options: Options(
+          responseType: ResponseType.bytes,
+        ),
+      );
+      if (response.data != null && response.data!.isNotEmpty) {
+        return Uint8List.fromList(response.data!);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
 }

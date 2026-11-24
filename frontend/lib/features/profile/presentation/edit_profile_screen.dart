@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -32,6 +33,66 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _addressController = TextEditingController(
       text: user?.alamat ?? 'RT 04 / RW 09, Gunungsari Indah',
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(profileControllerProvider.notifier).loadAvatar();
+    });
+  }
+
+  Future<void> _pickAndUploadPhoto() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png'],
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      final bytes = file.bytes;
+      if (bytes == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gagal membaca data file foto yang dipilih.'),
+            backgroundColor: Color(0xFFBA1A1A),
+          ),
+        );
+        return;
+      }
+
+      final success = await ref.read(profileControllerProvider.notifier).updateAvatar(
+            fileBytes: bytes,
+            fileName: file.name,
+          );
+
+      if (!mounted) return;
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Foto profil berhasil diunggah ke Supabase'),
+            backgroundColor: Color(0xFF0051D5),
+          ),
+        );
+      } else {
+        final err = ref.read(profileControllerProvider).errorMessage;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(err ?? 'Gagal mengunggah foto profil'),
+            backgroundColor: const Color(0xFFBA1A1A),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Terjadi kesalahan: $e'),
+          backgroundColor: const Color(0xFFBA1A1A),
+        ),
+      );
+    }
   }
 
   @override
@@ -157,43 +218,71 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     Stack(
                       clipBehavior: Clip.none,
                       children: [
-                        Container(
-                          width: 72,
-                          height: 72,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: const Color(0xFF0051D5).withValues(alpha: 0.1),
-                            border: Border.all(
-                              color: const Color(0xFF0051D5).withValues(alpha: 0.2),
-                              width: 2.0,
-                            ),
-                          ),
-                          child: Center(
-                            child: Text(
-                              sapaan.isNotEmpty ? sapaan[0].toUpperCase() : 'U',
-                              style: const TextStyle(
-                                fontSize: 28,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF0051D5),
+                        InkWell(
+                          onTap: _pickAndUploadPhoto,
+                          borderRadius: BorderRadius.circular(36.0),
+                          child: Container(
+                            width: 72,
+                            height: 72,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: const Color(0xFF0051D5).withValues(alpha: 0.1),
+                              border: Border.all(
+                                color: const Color(0xFF0051D5).withValues(alpha: 0.2),
+                                width: 2.0,
                               ),
                             ),
+                            child: profileState.isAvatarLoading
+                                ? const Center(
+                                    child: SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0051D5)),
+                                      ),
+                                    ),
+                                  )
+                                : (profileState.avatarBytes != null
+                                    ? ClipOval(
+                                        child: Image.memory(
+                                          profileState.avatarBytes!,
+                                          width: 72,
+                                          height: 72,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      )
+                                    : Center(
+                                        child: Text(
+                                          sapaan.isNotEmpty ? sapaan[0].toUpperCase() : 'U',
+                                          style: const TextStyle(
+                                            fontSize: 28,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF0051D5),
+                                          ),
+                                        ),
+                                      )),
                           ),
                         ),
                         Positioned(
                           right: -2,
                           bottom: -2,
-                          child: Container(
-                            width: 28,
-                            height: 28,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: const Color(0xFF0051D5),
-                              border: Border.all(color: Colors.white, width: 2.0),
-                            ),
-                            child: const Icon(
-                              Icons.camera_alt_rounded,
-                              size: 14,
-                              color: Colors.white,
+                          child: InkWell(
+                            onTap: _pickAndUploadPhoto,
+                            borderRadius: BorderRadius.circular(14.0),
+                            child: Container(
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: const Color(0xFF0051D5),
+                                border: Border.all(color: Colors.white, width: 2.0),
+                              ),
+                              child: const Icon(
+                                Icons.camera_alt_rounded,
+                                size: 14,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                         ),
@@ -251,13 +340,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                           ),
                           const SizedBox(height: 6),
                           InkWell(
-                            onTap: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Pilihan foto profil segera hadir.'),
-                                ),
-                              );
-                            },
+                            onTap: _pickAndUploadPhoto,
                             child: const Text(
                               'Ubah Foto',
                               style: TextStyle(

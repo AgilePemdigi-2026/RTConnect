@@ -8,6 +8,7 @@ class UserEntity {
   final String? phoneNumber;
   final String? address;
   final String? signatureUrl;
+  final String? avatarUrl;
 
   const UserEntity({
     required this.userId,
@@ -18,12 +19,14 @@ class UserEntity {
     this.phoneNumber,
     this.address,
     this.signatureUrl,
+    this.avatarUrl,
   });
 
   int get id => userId;
   String get namaLengkap => name;
   String? get nomorTelepon => phoneNumber;
   String? get alamat => address;
+  String? get fotoProfil => avatarUrl;
 
   bool get isRT => role.toLowerCase() == 'rt';
   bool get isWarga => role.toLowerCase() == 'warga';
@@ -37,6 +40,7 @@ class UserEntity {
     String? phoneNumber,
     String? address,
     String? signatureUrl,
+    String? avatarUrl,
   }) {
     return UserEntity(
       userId: userId ?? this.userId,
@@ -47,6 +51,7 @@ class UserEntity {
       phoneNumber: phoneNumber ?? this.phoneNumber,
       address: address ?? this.address,
       signatureUrl: signatureUrl ?? this.signatureUrl,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
     );
   }
 
@@ -60,6 +65,7 @@ class UserEntity {
       phoneNumber: json['nomor_telepon']?.toString() ?? json['phoneNumber']?.toString(),
       address: json['alamat']?.toString() ?? json['address']?.toString(),
       signatureUrl: json['tanda_tangan_digital']?.toString() ?? json['signatureUrl']?.toString(),
+      avatarUrl: json['foto_profil']?.toString() ?? json['avatarUrl']?.toString(),
     );
   }
 
@@ -73,6 +79,7 @@ class UserEntity {
       'nomor_telepon': phoneNumber,
       'alamat': address,
       'tanda_tangan_digital': signatureUrl,
+      'foto_profil': avatarUrl,
     };
   }
 }

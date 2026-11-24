@@ -19,3 +19,4 @@ python-dotenv==1.2.3
 reportlab==5.0.1
 Werkzeug==3.1.8
 supabase>=2.10,<3  # hanya untuk skrip bantu supabase_connect (opsional)
+firebase-admin>=6.5.0

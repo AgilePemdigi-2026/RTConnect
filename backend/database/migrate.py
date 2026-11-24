@@ -11,8 +11,14 @@ from pathlib import Path
 from database.db import close_pool, get_pool
 
 SQL_DIR = Path(__file__).with_name('supabase_sql')
-FILES = ('001_enums.sql', '002_extensions.sql', '003_data_pemohon.sql', '004_alamat_surabaya.sql',
-         '005_ai_fill_log.sql')
+FILES = (
+    '001_enums.sql',
+    '002_extensions.sql',
+    '003_data_pemohon.sql',
+    '004_alamat_surabaya.sql',
+    '005_ai_fill_log.sql',
+    '006_fcm_tokens.sql',
+)
 
 
 def migrate():

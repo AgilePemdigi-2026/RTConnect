@@ -4,6 +4,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
+import '../../../core/services/push_notification_service.dart';
 import '../domain/user_entity.dart';
 
 class AuthRepository {
@@ -35,6 +36,11 @@ class AuthRepository {
     await _storage.write(key: AppConstants.keyUserId, value: user.id.toString());
     await _storage.write(key: AppConstants.keyUserName, value: user.namaLengkap);
     await _storage.write(key: AppConstants.keyUserNik, value: user.nik);
+
+    // Sinkronisasi device token untuk push notification FCM
+    try {
+      await PushNotificationService.syncDeviceToken(_apiClient);
+    } catch (_) {}
 
     return user;
   }
@@ -110,7 +116,16 @@ class AuthRepository {
   }
 
   Future<void> logout() async {
+    try {
+      await PushNotificationService.removeDeviceToken(_apiClient);
+    } catch (_) {}
     await _clearCredentials();
+  }
+
+  Future<void> syncDeviceToken() async {
+    try {
+      await PushNotificationService.syncDeviceToken(_apiClient);
+    } catch (_) {}
   }
 
   Future<void> _clearCredentials() async {

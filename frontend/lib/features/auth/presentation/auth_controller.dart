@@ -61,6 +61,7 @@ class AuthController extends StateNotifier<AuthState> {
           isAuthenticated: true,
           user: user,
         );
+        _repository.syncDeviceToken();
         return;
       }
     }

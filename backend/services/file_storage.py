@@ -10,7 +10,7 @@ from PIL import Image, UnidentifiedImageError
 from config import Config
 
 
-_ALLOWED_CATEGORIES = {'signatures', 'attachments', 'generated_letters'}
+_ALLOWED_CATEGORIES = {'signatures', 'attachments', 'generated_letters', 'avatars'}
 _ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 _ALLOWED_ATTACHMENT_EXTENSIONS = _ALLOWED_IMAGE_EXTENSIONS | {'pdf'}
 
@@ -127,14 +127,14 @@ def read_bytes(key):
 
 
 def store_upload(upload, category):
-    if category not in {'signatures', 'attachments'}:
+    if category not in {'signatures', 'attachments', 'avatars'}:
         raise ValueError('Unsupported upload category.')
     if not upload or not upload.filename:
         raise ValueError('Choose a file to upload.')
 
     extension = Path(upload.filename).suffix.lower().lstrip('.')
     allowed_extensions = (
-        _ALLOWED_IMAGE_EXTENSIONS if category == 'signatures'
+        _ALLOWED_IMAGE_EXTENSIONS if category in {'signatures', 'avatars'}
         else _ALLOWED_ATTACHMENT_EXTENSIONS
     )
     if extension not in allowed_extensions:
