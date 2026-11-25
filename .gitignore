@@ -70,6 +70,7 @@ RTConnect-KnowledgeBase/
 # ==========================================
 # AI Assistant & Agent Guidelines
 # ==========================================
+AGENTS.md
 GEMINI.md
 .agents/
 *.agent
@@ -78,9 +79,24 @@ CLAUDE.md
 .cursor/
 
 # ==========================================
-# Temporary Dev Reports & Changelogs
+# Temporary Dev Reports, EGM, & Non-Runtime Docs
 # ==========================================
 BACKEND_CHANGE_REPORT.md
+2026-*-*_DRIFT_REPORT.md
+comprehension_report.md
+concepts_brief.md
+consolidated_review_report.md
+critic_report.md
+implementation_readiness_report.md
+intermediate_zoom_out_report.md
+zoom_out_report.md
+docs/audit/
+docs/designs/
+docs/AI_GUARDRAILS.md
+docs/DEPLOY_COOLIFY.md
+backend/**/README.md
+frontend/README.md
+frontend/lib/**/README.md
 
 # ==========================================
 # IDE & Editor
