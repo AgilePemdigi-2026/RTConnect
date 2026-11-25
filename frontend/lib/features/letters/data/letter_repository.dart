@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
 
@@ -19,7 +20,7 @@ class LetterRepository {
     required int jenisSuratId,
     required String keperluan,
     required String metodeTandaTangan,
-    String? lampiranPath,
+    PlatformFile? lampiran,
     Map<String, String> dataPemohon = const {},
     Map<String, dynamic>? aiMeta,
   }) async {
@@ -27,14 +28,17 @@ class LetterRepository {
     // dataPemohon: pekerjaan, jenis_kelamin, tempat_lahir, tanggal_lahir (YYYY-MM-DD),
     // agama, status_kawin, kewarganegaraan, nomor_kk, tujuan, keterangan_lain
     dynamic payload;
-    if (lampiranPath != null && lampiranPath.isNotEmpty) {
+    if (lampiran != null) {
       payload = FormData.fromMap({
         'jenis_surat_id': jenisSuratId,
         'keperluan': keperluan,
         'metode_tanda_tangan': metodeTandaTangan,
         ...dataPemohon,
         if (aiMeta != null) 'ai_meta': jsonEncode(aiMeta),
-        'lampiran': await MultipartFile.fromFile(lampiranPath),
+        // Web tidak punya path file -> kirim bytes; Android/desktop -> baca dari path
+        'lampiran': lampiran.bytes != null
+            ? MultipartFile.fromBytes(lampiran.bytes!, filename: lampiran.name)
+            : await MultipartFile.fromFile(lampiran.path!, filename: lampiran.name),
       });
     } else {
       payload = {
@@ -82,6 +86,15 @@ class LetterRepository {
     final response = await _apiClient.dio.get<Map<String, dynamic>>(ApiEndpoints.incomingQueue);
     final data = response.data!['data'] as List;
     return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  /// Unduh file privat (mis. lampiran pemohon) dengan token login.
+  Future<List<int>> getFileBytes(String storageKey) async {
+    final response = await _apiClient.dio.get<List<int>>(
+      ApiEndpoints.fileUrl(storageKey),
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return response.data ?? const [];
   }
 
   Future<Map<String, dynamic>> getApplicationDetail(int id) async {

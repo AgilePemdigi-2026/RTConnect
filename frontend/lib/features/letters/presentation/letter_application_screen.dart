@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -48,7 +49,7 @@ class _LetterApplicationScreenState
   int? _selectedJenisSuratId;
   String? _selectedSyarat;
   String _metodeTtd = 'digital'; // 'digital' or 'basah'
-  String? _lampiranPath;
+  PlatformFile? _lampiran;
   String? _lampiranFileName;
 
   @override
@@ -138,10 +139,11 @@ class _LetterApplicationScreenState
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
+      withData: kIsWeb, // di web path file tidak tersedia, jadi isi file diambil langsung
     );
-    if (result != null && result.files.single.path != null) {
+    if (result != null && result.files.isNotEmpty) {
       setState(() {
-        _lampiranPath = result.files.single.path;
+        _lampiran = result.files.single;
         _lampiranFileName = result.files.single.name;
       });
     }
@@ -149,7 +151,7 @@ class _LetterApplicationScreenState
 
   void _removeAttachment() {
     setState(() {
-      _lampiranPath = null;
+      _lampiran = null;
       _lampiranFileName = null;
     });
   }
@@ -172,7 +174,7 @@ class _LetterApplicationScreenState
           jenisSuratId: _selectedJenisSuratId!,
           keperluan: _keperluanController.text.trim(),
           metodeTandaTangan: _metodeTtd,
-          lampiranPath: _lampiranPath,
+          lampiran: _lampiran,
           dataPemohon: _dataPemohon(),
         );
 
