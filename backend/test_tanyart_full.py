@@ -7,8 +7,8 @@ Menjalankan pengujian otomatis untuk:
 4. Isolasi pengguna dan sesi (pencegahan akses sesi milik pengguna lain).
 5. Grounded answering dan pencegahan halusinasi / prompt injection.
 6. Fallback provider & anggaran waktu:
-   - 6A: Kondisi API Key Kosong.
-   - 6B: Kegagalan Model Utama & Sukses Model Cadangan dalam sisa waktu.
+   - 6A: Penolakan endpoint cloud.
+   - 6B: Pertukaran HTTP dengan endpoint Ollama simulasi.
    - 6C: Respons Lambat / Timeout Provider (kehabisan anggaran waktu).
 7. Integritas skema database Supabase (Postgres DDL / contract).
 8. Pengelolaan dokumen basis pengetahuan oleh Ketua RT (SRS REQ-7: upload, chunk, embed, auth guard).
@@ -142,13 +142,12 @@ def test_2_semantic_embedding():
     best_c, score, ranked = sem_service.search_semantic_chunks(query_vec, mock_chunks, threshold=0.70)
 
     search_ok = best_c is not None and best_c["kode_sumber"] == "RTC-014" and score >= 0.70
-    is_live = sem_service.is_embedding_configured()
 
     test_status = "PASS" if (math_ok and search_ok) else "FAIL"
     detail = (
         f"Kalkulasi Cosine: {'PASS' if math_ok else 'FAIL'}, "
         f"Vector Match: {'PASS' if search_ok else 'FAIL'} (score={score:.4f}). "
-        f"Konfigurasi API Key: {'Terisi' if is_live else 'Belum disetel (Fallback Terkelola)'}"
+        "Mode produksi TanyaRT memakai retrieval leksikal."
     )
 
     tracker.record("TEST-02", "Uji Vektor Lokal: Cosine Similarity & Search", test_status, detail)
@@ -604,88 +603,50 @@ def test_6_provider_failure_and_fallback():
         "isi_chunk": "Syarat cetak ulang KTP hilang adalah STPLK dan KK.",
     }
 
-    # 6A. Uji Kondisi API Key Kosong
-    orig_key = Config.GEMINI_API_KEY
-    Config.GEMINI_API_KEY = ""
-    ans_empty, cit_empty, used_empty = llm_service.synthesize_answer_with_gemini("syarat ktp hilang", sample_chunk)
-    empty_ok = (used_empty is False and "Berdasarkan KTP-el Hilang" in ans_empty and cit_empty is not None)
-    Config.GEMINI_API_KEY = orig_key
-    tracker.record("TEST-06A", "Fallback Kondisi API Key Kosong", "PASS" if empty_ok else "FAIL", f"Used LLM: {used_empty}, Fallback Grounded Answer: {empty_ok}")
+    from unittest.mock import patch
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
 
-    # 6B. Uji Kegagalan Model Utama & Sukses Model Cadangan dalam Sisa Anggaran Waktu
-    calls_recorded = []
-    class FakeGenaiResponse:
-        text = "Jawaban berhasil dari model cadangan."
+    class OllamaStub(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
 
-    class MockMultiModelClient:
-        def __init__(self, *a, **k):
-            class Models:
-                def generate_content(s, model, contents, config=None):
-                    timeout_val = config.http_options.timeout if config and config.http_options else None
-                    calls_recorded.append({"model": model, "timeout_ms": timeout_val, "time": time.perf_counter()})
-                    if model == "gemini-flash-latest":
-                        time.sleep(0.08)  # Model utama lambat dan gagal
-                        raise RuntimeError("Gemini 503 Service Unavailable")
-                    elif model == "gemini-flash-lite-latest":
-                        return FakeGenaiResponse()
-                    raise RuntimeError(f"Unknown model {model}")
-            self.models = Models()
+        def do_POST(self):
+            req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            ok = (self.path == "/v1/chat/completions" and req["model"] == "fixture"
+                  and "STPLK" in req["messages"][-1]["content"])
+            self.send_response(200 if ok else 400)
+            self.end_headers()
+            self.wfile.write(b'{"choices":[{"message":{"content":"Jawaban uji."},"finish_reason":"stop"}]}')
 
-    import google.genai as genai
-    orig_genai_client = genai.Client
-    genai.Client = MockMultiModelClient
+    def call(budget=1):
+        return llm_service.synthesize_answer("syarat ktp hilang", sample_chunk, time_budget=budget)
 
-    Config.GEMINI_API_KEY = "test-mock-key"
-    Config.GEMINI_MODEL = "gemini-flash-latest"
-    Config.GEMINI_FALLBACK_MODELS = ["gemini-flash-latest", "gemini-flash-lite-latest"]
+    with patch.dict(os.environ, {"TANYART_LLM_BASE_URL": "https://api.openai.com/v1"}):
+        ans, cit, used = call()
+        ok = not used and "RTC-014" in cit and not sem_service.is_embedding_configured()
+        tracker.record("TEST-06A", "Endpoint eksternal ditolak", "PASS" if ok else "FAIL", cit)
 
-    ans_fallback, cit_fallback, used_fallback = llm_service.synthesize_answer_with_gemini(
-        "syarat ktp hilang", sample_chunk, time_budget=3.0
-    )
-    fallback_ok = (
-        used_fallback is True
-        and ans_fallback == "Jawaban berhasil dari model cadangan."
-        and len(calls_recorded) == 2
-        and calls_recorded[0]["model"] == "gemini-flash-latest"
-        and calls_recorded[1]["model"] == "gemini-flash-lite-latest"
-        and calls_recorded[1]["time"] > calls_recorded[0]["time"]  # Membuktikan percobaan ke-2 dieksekusi berurutan dalam sisa budget
-    )
-    tracker.record(
-        "TEST-06B",
-        "Kegagalan Model Utama & Sukses Model Cadangan dalam Sisa Waktu",
-        "PASS" if fallback_ok else "FAIL",
-        f"Percobaan ke-2 dieksekusi berurutan dalam sisa anggaran waktu (model 1={calls_recorded[0]['model']}, model 2={calls_recorded[1]['model']})",
-    )
-
-    # 6C. Uji Respons Lambat / Timeout Provider (Kehabisan Anggaran Waktu)
-    calls_slow = []
-    class MockSlowClient:
-        def __init__(self, *a, **k):
-            class Models:
-                def generate_content(s, model, contents, config=None):
-                    calls_slow.append({"model": model, "time": time.perf_counter()})
-                    time.sleep(0.25)  # Menghabiskan budget
-                    raise TimeoutError("Call timed out")
-            self.models = Models()
-
-    genai.Client = MockSlowClient
-    ans_slow, cit_slow, used_slow = llm_service.synthesize_answer_with_gemini(
-        "syarat ktp hilang", sample_chunk, time_budget=0.20
-    )
-    slow_ok = (
-        used_slow is False
-        and "Berdasarkan KTP-el Hilang" in ans_slow
-        and len(calls_slow) == 1  # Model kedua tidak dipanggil karena budget habis
-    )
-    genai.Client = orig_genai_client
-    Config.GEMINI_API_KEY = orig_key
-
-    tracker.record(
-        "TEST-06C",
-        "Respons Lambat / Timeout Provider (Kehabisan Anggaran Waktu)",
-        "PASS" if slow_ok else "FAIL",
-        f"Grounded Fallback Aktif: {slow_ok}, Panggilan dibatalkan tepat waktu (hanya {len(calls_slow)} percobaan dipanggil)",
-    )
+    with ThreadingHTTPServer(("127.0.0.1", 0), OllamaStub) as server:
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = f"http://127.0.0.1:{server.server_port}/v1"
+            with patch.dict(os.environ, {"TANYART_LLM_BASE_URL": url, "TANYART_LLM_MODEL": "fixture"}):
+                ans, cit, used = call()
+                ok = used and ans == "Jawaban uji." and "RTC-014" in cit
+                tracker.record("TEST-06B", "Kontrak HTTP Ollama lokal (simulasi)", "PASS" if ok else "FAIL", cit)
+                def slow(*args):
+                    time.sleep(0.4)
+                    return "terlambat"
+                with patch.object(llm_service, "_chat", side_effect=slow):
+                    start = time.monotonic()
+                    ans, cit, used = call(0.10)
+                    ok = not used and "STPLK" in ans and time.monotonic() - start < 0.35
+                    tracker.record("TEST-06C", "Timeout lokal dan fallback", "PASS" if ok else "FAIL", cit)
+        finally:
+            server.shutdown()
+            thread.join()
 
 
 # ============================================================================
@@ -960,9 +921,11 @@ def test_9_privacy_boundary_and_flutter_contract():
         json={"query": "seed phrase: abandon ability able about above absent absorb abstract absurd abuse access account"},
         headers={"Authorization": f"Bearer {token}"},
     )
+    seed_json = resp_seed.get_json() or {}
+    seed_data = seed_json.get("data") or {}
     seed_ok = (
         resp_seed.status_code == 200
-        and resp_seed.get_json()["data"]["status"] == "RAHASIA"
+        and seed_data.get("status") == "RAHASIA"
         and len(outbound_embeddings) == len_emb_before
         and len(outbound_gemini) == len_gem_before
     )
@@ -984,7 +947,7 @@ def test_9_privacy_boundary_and_flutter_contract():
     )
 
     # 9B. Kesesuaian Kontrak API Flutter & Draf WhatsApp pada 4 Quick Prompts & Kasus Khusus
-    data_actual = resp_norm.get_json()["data"]
+    data_actual = (resp_norm.get_json() or {}).get("data") or {}
     expected_flutter_fields = {
         "session_id": int,
         "is_escalated": bool,
@@ -1071,21 +1034,21 @@ def test_9_privacy_boundary_and_flutter_contract():
     rag.query_all = lambda sql, p=None: [c5_vec]
     chatbot_routes.query_all = lambda sql, p=None: [c5_vec]
     r_sem_iuran = client.post("/api/v1/chatbot/query", json={"query": "Iuran RT Bulan Ini"}, headers={"Authorization": f"Bearer {token}"})
-    d_sem_iuran = r_sem_iuran.get_json()["data"]
+    d_sem_iuran = (r_sem_iuran.get_json() or {}).get("data") or {}
 
     rag.query_all = lambda sql, p=None: [c7_vec]
     chatbot_routes.query_all = lambda sql, p=None: [c7_vec]
     r_sem_kb = client.post("/api/v1/chatbot/query", json={"query": "Jadwal Kerja Bakti"}, headers={"Authorization": f"Bearer {token}"})
-    d_sem_kb = r_sem_kb.get_json()["data"]
+    d_sem_kb = (r_sem_kb.get_json() or {}).get("data") or {}
 
     sem_unified_ok = (
-        d_sem_iuran["status"] == "SUMBER_DITEMUKAN"
-        and d_sem_iuran["similarity_score"] >= 0.70
-        and d_sem_iuran["is_escalated"] is True
+        d_sem_iuran.get("status") == "SUMBER_DITEMUKAN"
+        and d_sem_iuran.get("similarity_score", 0) >= 0.70
+        and d_sem_iuran.get("is_escalated") is True
         and bool(d_sem_iuran.get("escalation_whatsapp_url"))
-        and d_sem_kb["status"] == "SUMBER_DITEMUKAN"
-        and d_sem_kb["similarity_score"] >= 0.70
-        and d_sem_kb["is_escalated"] is True
+        and d_sem_kb.get("status") == "SUMBER_DITEMUKAN"
+        and d_sem_kb.get("similarity_score", 0) >= 0.70
+        and d_sem_kb.get("is_escalated") is True
         and bool(d_sem_kb.get("escalation_whatsapp_url"))
     )
 
@@ -1096,19 +1059,19 @@ def test_9_privacy_boundary_and_flutter_contract():
     chatbot_routes.query_all = lambda sql, p=None: base_chunks
 
     r_lex_iuran = client.post("/api/v1/chatbot/query", json={"query": "Iuran RT Bulan Ini"}, headers={"Authorization": f"Bearer {token}"})
-    d_lex_iuran = r_lex_iuran.get_json()["data"]
+    d_lex_iuran = (r_lex_iuran.get_json() or {}).get("data") or {}
 
     r_lex_kb = client.post("/api/v1/chatbot/query", json={"query": "Jadwal Kerja Bakti"}, headers={"Authorization": f"Bearer {token}"})
-    d_lex_kb = r_lex_kb.get_json()["data"]
+    d_lex_kb = (r_lex_kb.get_json() or {}).get("data") or {}
 
     lex_unified_ok = (
-        d_lex_iuran["status"] == "SUMBER_DITEMUKAN"
-        and d_lex_iuran["similarity_score"] >= 0.70
-        and d_lex_iuran["is_escalated"] is True
+        d_lex_iuran.get("status") == "SUMBER_DITEMUKAN"
+        and d_lex_iuran.get("similarity_score", 0) >= 0.70
+        and d_lex_iuran.get("is_escalated") is True
         and bool(d_lex_iuran.get("escalation_whatsapp_url"))
-        and d_lex_kb["status"] == "SUMBER_DITEMUKAN"
-        and d_lex_kb["similarity_score"] >= 0.70
-        and d_lex_kb["is_escalated"] is True
+        and d_lex_kb.get("status") == "SUMBER_DITEMUKAN"
+        and d_lex_kb.get("similarity_score", 0) >= 0.70
+        and d_lex_kb.get("is_escalated") is True
         and bool(d_lex_kb.get("escalation_whatsapp_url"))
     )
 
@@ -1119,10 +1082,10 @@ def test_9_privacy_boundary_and_flutter_contract():
     llm_service.synthesize_answer_with_gemini = lambda *a, **k: ("Fallback text", "Citation", False)
 
     r_gem_fail = client.post("/api/v1/chatbot/query", json={"query": "Bagaimana mengurus KTP yang hilang di Surabaya?"}, headers={"Authorization": f"Bearer {token}"})
-    d_gem_fail = r_gem_fail.get_json()["data"]
+    d_gem_fail = (r_gem_fail.get_json() or {}).get("data") or {}
     flutter_gem_ok = (
-        d_gem_fail["status"] == "SUMBER_DITEMUKAN"
-        and d_gem_fail["is_escalated"] is True
+        d_gem_fail.get("status") == "SUMBER_DITEMUKAN"
+        and d_gem_fail.get("is_escalated") is True
         and bool(d_gem_fail.get("escalation_whatsapp_url"))
     )
 
@@ -1219,7 +1182,7 @@ def test_9_privacy_boundary_and_flutter_contract():
         "TEST-09B",
         "Kontrak API Flutter & Draf WhatsApp 4 Quick Prompts (SRS REQ-6)",
         "PASS" if all_test_09b_ok else "FAIL",
-        f"Kontrak Flutter Valid: {field_match}, Draf WA: {all_wa_ok}, Semantik Unified: {sem_unified_ok}, Leksikal Unified: {lex_unified_ok}, Gemini Fallback WA: {flutter_gem_ok}, Kalender Bersyarat: {calendar_rules_ok}",
+        f"Kontrak Flutter Valid: {field_match}, Draf WA: {all_wa_ok}, Semantik Unified: {sem_unified_ok}, Leksikal Unified: {lex_unified_ok}, LLM Fallback WA: {flutter_gem_ok}, Kalender Bersyarat: {calendar_rules_ok}",
     )
 
     # Restore stubs
@@ -1273,7 +1236,7 @@ def test_10_latency_measurements():
         "TEST-10B",
         "Live End-to-End Latency Benchmark",
         "SKIP",
-        "Pengujian latensi end-to-end live ditunda (SKIP) sampai seluruh stack (Flask API, Supabase PostgreSQL, OpenAI text-embedding-3-small, dan Gemini AI API) diuji bersama dalam koneksi jaringan live.",
+        "Pengujian latensi end-to-end live ditunda (SKIP) sampai seluruh stack (Flask API, Supabase PostgreSQL, retrieval leksikal, dan Ollama) diuji bersama dalam koneksi jaringan live.",
     )
 
 
@@ -1298,6 +1261,11 @@ def main():
 
     print("=" * 80)
     tracker.export_csv("tanyart_full_verification_results.csv")
+    try:
+        from database.db import close_pool
+        close_pool()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
