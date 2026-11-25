@@ -55,15 +55,45 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
   }
 
   Future<void> _launchWhatsApp(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Tidak dapat membuka aplikasi WhatsApp')),
-        );
+    final webUri = Uri.tryParse(url);
+    if (webUri == null ||
+        webUri.scheme != 'https' ||
+        webUri.host != 'wa.me' ||
+        webUri.pathSegments.isEmpty) {
+      return;
+    }
+
+    final directUri = Uri(
+      scheme: 'whatsapp',
+      host: 'send',
+      queryParameters: {
+        'phone': webUri.pathSegments.first,
+        if (webUri.queryParameters['text'] != null)
+          'text': webUri.queryParameters['text']!,
+      },
+    );
+
+    try {
+      if (await launchUrl(directUri, mode: LaunchMode.externalApplication)) {
+        return;
       }
+    } catch (_) {
+      // WhatsApp may be unavailable; try the web link below.
+    }
+
+    try {
+      if (await launchUrl(webUri, mode: LaunchMode.externalApplication)) {
+        return;
+      }
+    } catch (_) {
+      // Show a clear error only after both options fail.
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Tidak dapat membuka WhatsApp atau browser')),
+      );
     }
   }
 
@@ -200,8 +230,9 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: AppSpacing.md),
                     child: Row(
-                      mainAxisAlignment:
-                          isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+                      mainAxisAlignment: isUser
+                          ? MainAxisAlignment.end
+                          : MainAxisAlignment.start,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (!isUser) ...[
@@ -238,8 +269,10 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                                   borderRadius: BorderRadius.only(
                                     topLeft: const Radius.circular(18),
                                     topRight: const Radius.circular(18),
-                                    bottomLeft: Radius.circular(isUser ? 18 : 4),
-                                    bottomRight: Radius.circular(isUser ? 4 : 18),
+                                    bottomLeft:
+                                        Radius.circular(isUser ? 18 : 4),
+                                    bottomRight:
+                                        Radius.circular(isUser ? 4 : 18),
                                   ),
                                   border: isUser
                                       ? null
@@ -268,6 +301,8 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                               if (msg.citation != null) ...[
                                 const SizedBox(height: 6),
                                 Container(
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 280),
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 10,
                                     vertical: 4,
@@ -288,12 +323,15 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                                         color: Color(0xFF475569),
                                       ),
                                       const SizedBox(width: 6),
-                                      Text(
-                                        'Rujukan: ${msg.citation}',
-                                        style: AppTypography.caption.copyWith(
-                                          color: const Color(0xFF475569),
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 11,
+                                      Flexible(
+                                        child: Text(
+                                          'Rujukan: ${msg.citation}',
+                                          softWrap: true,
+                                          style: AppTypography.caption.copyWith(
+                                            color: const Color(0xFF475569),
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 11,
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -308,9 +346,11 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                                   children: [
                                     InkWell(
                                       onTap: () {
-                                        ScaffoldMessenger.of(context).showSnackBar(
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
                                           const SnackBar(
-                                            content: Text('Terima kasih atas tanggapan Anda!'),
+                                            content: Text(
+                                                'Terima kasih atas tanggapan Anda!'),
                                             duration: Duration(seconds: 1),
                                           ),
                                         );
@@ -323,7 +363,8 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                                         ),
                                         decoration: BoxDecoration(
                                           color: Colors.white,
-                                          borderRadius: BorderRadius.circular(6),
+                                          borderRadius:
+                                              BorderRadius.circular(6),
                                           border: Border.all(
                                             color: AppColors.border,
                                           ),
@@ -340,9 +381,11 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                                     const SizedBox(width: 6),
                                     InkWell(
                                       onTap: () {
-                                        ScaffoldMessenger.of(context).showSnackBar(
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
                                           const SnackBar(
-                                            content: Text('Tanggapan dicatat untuk peningkatan sistem.'),
+                                            content: Text(
+                                                'Tanggapan dicatat untuk peningkatan sistem.'),
                                             duration: Duration(seconds: 1),
                                           ),
                                         );
@@ -355,7 +398,8 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                                         ),
                                         decoration: BoxDecoration(
                                           color: Colors.white,
-                                          borderRadius: BorderRadius.circular(6),
+                                          borderRadius:
+                                              BorderRadius.circular(6),
                                           border: Border.all(
                                             color: AppColors.border,
                                           ),
@@ -374,10 +418,13 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                               ],
 
                               // WhatsApp Escalation Card (Figma #68:1546)
-                              if (msg.isEscalated && msg.whatsappUrl != null) ...[
+                              if (msg.isEscalated &&
+                                  msg.whatsappUrl != null) ...[
                                 const SizedBox(height: AppSpacing.sm),
                                 Container(
-                                  width: 280,
+                                  width: double.infinity,
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 280),
                                   padding: const EdgeInsets.all(AppSpacing.md),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFF0FDF4),
@@ -387,7 +434,8 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                                     ),
                                   ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         'Perlu Konfirmasi Ketua RT?',
@@ -429,7 +477,8 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                                           ),
                                           label: Text(
                                             'Hubungi via WhatsApp',
-                                            style: AppTypography.labelBold.copyWith(
+                                            style: AppTypography.labelBold
+                                                .copyWith(
                                               color: Colors.white,
                                               fontSize: 12,
                                             ),
@@ -500,7 +549,8 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                         controller: _textController,
                         style: AppTypography.bodySmall,
                         decoration: const InputDecoration(
-                          hintText: 'Tanyakan syarat surat, iuran, tata tertib...',
+                          hintText:
+                              'Tanyakan syarat surat, iuran, tata tertib...',
                           hintStyle: TextStyle(
                             color: Color(0xFF94A3B8),
                             fontSize: 13,
@@ -542,7 +592,6 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
           ],
         ),
       ),
-
     );
   }
 }
