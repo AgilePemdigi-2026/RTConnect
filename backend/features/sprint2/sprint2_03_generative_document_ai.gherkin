@@ -29,7 +29,7 @@ Feature: [Sprint 2] Generative Document dengan Asisten AI dan Biodata Tersimpan
       | keperluan          | Persyaratan melamar pekerjaan di PT Maju Jaya |
       | tujuan             | Polrestabes Surabaya                        |
       | pertanyaan_lanjutan | Mau tanda tangan digital atau basah?        |
-    When the resident asks the AI assistant "Saya mau bikin SKCK buat melamar kerja di PT Maju Jaya"
+    When the resident asks the AI assistant "Saya mau bikin SKCK buat melamar kerja di PT Maju Jaya, suratnya untuk Polrestabes"
     Then the response status code should be 200
     And the response field "data.ai_digunakan" should be true
     And the response field "data.jenis_surat.kode_surat" should be "SKCK"

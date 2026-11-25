@@ -14,6 +14,7 @@ from xml.sax.saxutils import escape
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from config import Config
@@ -46,12 +47,23 @@ def _p(text, style):
     return Paragraph(escape(str(text)).replace('\n', '<br/>'), style)
 
 
+SIGN_BOX_W, SIGN_BOX_H = 140, 56  # ruang tanda tangan (pt), sama untuk pemohon & Ketua RT
+
+
 def _signature_image(rt_user):
+    """Gambar tanda tangan Ketua RT, diskalakan proporsional agar muat di ruang tanda tangan."""
     key = rt_user.get('tanda_tangan_url')
     if not key:
         return None
     try:
-        return Image(io.BytesIO(read_bytes(key)), width=120, height=42)
+        data = read_bytes(key)
+        img_w, img_h = ImageReader(io.BytesIO(data)).getSize()
+        if not img_w or not img_h:
+            return None
+        scale = min(SIGN_BOX_W / img_w, SIGN_BOX_H / img_h)
+        image = Image(io.BytesIO(data), width=img_w * scale, height=img_h * scale)
+        image.hAlign = 'CENTER'
+        return image
     except (FileNotFoundError, OSError, ValueError):
         return None
 
@@ -119,21 +131,30 @@ def generate_official_letter_pdf_bytes(
     story.append(Spacer(1, 4))
     story.append(Paragraph('Demikian agar mendapat bantuan seperlunya', ParagraphStyle(
         'Closing', parent=body, leftIndent=46)))
-    story.append(Spacer(1, 14))
+    story.append(Spacer(1, 18))
 
-    # 4. Tanda tangan pemohon (kiri) & Ketua RT (kanan)
+    # 4. Tanda tangan pemohon (kiri) & Ketua RT (kanan): baris sejajar, ruang tanda tangan sama tinggi
     today = format_tanggal(datetime.date.today())
     rt_name = Config.RT_CHAIR_NAME or rt_user.get('nama_lengkap') or Config.RT_NAME
-    signature = _signature_image(rt_user) or Spacer(1, 42)
-    left = [Paragraph('Tanda tangan', center), Paragraph('Yang bersangkutan', center),
-            Spacer(1, 50), Paragraph(f'( {escape(fields["nama"])} )', center)]
-    right = [Paragraph(f'{escape(Config.RT_SIGNING_LOCATION)}, {today}', center),
-             Paragraph(f'Ketua RT. {escape(rt)}', center), Spacer(1, 4), signature, Spacer(1, 4),
-             Paragraph(f'( {escape(rt_name)} )', center)]
+    signature = _signature_image(rt_user) or ''
     half = width / 2
-    signs = Table([[left, right]], colWidths=[half, half])
-    signs.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+    signs = Table([
+        [Paragraph('Tanda tangan', center), Paragraph(f'{escape(Config.RT_SIGNING_LOCATION)}, {today}', center)],
+        [Paragraph('Yang bersangkutan', center), Paragraph(f'Ketua RT. {escape(rt)}', center)],
+        ['', signature],
+        [Paragraph(f'( {escape(fields["nama"])} )', center), Paragraph(f'( {escape(rt_name)} )', center)],
+    ], colWidths=[half, half], rowHeights=[None, None, SIGN_BOX_H + 8, None])
+    signs.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('VALIGN', (0, 2), (-1, 2), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+    ]))
     story.append(signs)
+    story.append(Spacer(1, 18))
 
     # 5. No. register RW + Mengetahui Ketua RW (tengah)
     story.append(Paragraph('No. ' + '.' * 44, center))

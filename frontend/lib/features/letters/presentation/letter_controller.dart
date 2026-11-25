@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/errors/app_exception.dart';
@@ -66,7 +67,7 @@ class LetterSubmitController extends StateNotifier<LetterSubmitState> {
     required int jenisSuratId,
     required String keperluan,
     required String metodeTandaTangan,
-    String? lampiranPath,
+    PlatformFile? lampiran,
     Map<String, String> dataPemohon = const {},
     Map<String, dynamic>? aiMeta,
   }) async {
@@ -76,7 +77,7 @@ class LetterSubmitController extends StateNotifier<LetterSubmitState> {
         jenisSuratId: jenisSuratId,
         keperluan: keperluan,
         metodeTandaTangan: metodeTandaTangan,
-        lampiranPath: lampiranPath,
+        lampiran: lampiran,
         dataPemohon: dataPemohon,
         aiMeta: aiMeta,
       );

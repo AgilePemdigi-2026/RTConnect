@@ -745,12 +745,7 @@ def search_knowledge_base(
     - Batas Privasi: Memvalidasi kueri dan menyamarkan PII (NIK/No HP) sebelum
       percabangan semantik maupun leksikal. Kredensial rahasia / injeksi dicegat langsung.
     - Anggaran Waktu: Seluruh alur (embedding + LLM) berjalan dalam time budget (maks 5s).
-    - Bila OpenAI/Embedding service dikonfigurasi & embedding dokumen tersedia:
-      menggunakan cosine similarity embedding murni (text-embedding-3-small) dengan ambang 0,70.
-    - Bila layanan embedding belum dikonfigurasi / timeout: fallback terkelola ke ranking leksikal
-      (dengan penandaan retrieval_mode: 'lexical_heuristic_fallback', skor tidak diklaim sebagai cosine).
-    - Bila potongan dokumen resmi ditemukan: menyintesis jawaban menggunakan Gemini AI API
-      dengan batasan grounding ketat pada dokumen resmi (SRS REQ-5).
+    - Mode Ollama memakai pencarian leksikal dan menyusun jawaban dari dokumen terpilih.
     """
     t_start = time.perf_counter()
     budget = time_budget if time_budget is not None else Config.TANYART_LLM_TIMEOUT
@@ -781,7 +776,7 @@ def search_knowledge_base(
 
     if not semantic_enabled:
         semantic_status = 'unconfigured'
-        semantic_diagnostic = 'Layanan embedding OpenAI belum dikonfigurasi'
+        semantic_diagnostic = 'Mode Ollama lokal: pencarian leksikal, embedding lokal belum tersedia'
     elif not chunks_with_vec:
         semantic_status = 'empty_vectors'
         semantic_diagnostic = f'Database memuat {len(chunks or [])} chunk, namun seluruhnya belum memiliki embedding_vector'

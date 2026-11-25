@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -84,7 +85,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
   bool _tanyaLanjut = false; // asisten menunggu jawaban lanjutan di chat
   List<String> _tujuanSaran = const [];
   List<String> _syarat = const [];
-  String? _lampiranPath;
+  PlatformFile? _lampiran;
   String? _lampiranNama;
 
   // Biodata tersimpan (dicek saat layar dibuka) -> peringatan bila belum lengkap
@@ -126,6 +127,9 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
   bool _sudahDiisi = false;
   String? _pertanyaan;
   bool _editBiodata = false;
+  // Guardrail AI: isian yang ditolak server (tidak disebut / melanggar SOP) & peringatan
+  List<Map<String, String>> _ditolak = [];
+  List<String> _peringatan = [];
 
   // Langkah 3
   bool _setuju = false;
@@ -195,6 +199,10 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
       if (!mounted) return;
       _riwayat.add(pesan);
       _terapkanHasil(result);
+      // Peringatan guardrail (mis. perintah sisipan diabaikan) ditampilkan di chat
+      for (final p in _peringatan) {
+        _messages.add(_ChatMessage(p, isError: true));
+      }
       final aiDipakai = result['ai_digunakan'] == true;
       // Percakapan lanjutan: bila jenis/keperluan/tujuan masih kosong, asisten bertanya di chat.
       final belumJelas = [
@@ -303,6 +311,11 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
     }
     _sudahDiisi = true;
     _pertanyaan = r['pertanyaan']?.toString();
+    _peringatan = [for (final p in (r['peringatan'] as List? ?? const [])) p.toString()];
+    _ditolak = [
+      for (final d in (r['ditolak'] as List? ?? const []))
+        if (d is Map) {'kolom': '${d['kolom'] ?? ''}', 'alasan': '${d['alasan'] ?? ''}'}
+    ];
     // Biodata lengkap -> tampil ringkas; ada yang kosong -> langsung bisa diisi.
     _editBiodata = !_biodataLengkap;
     _setuju = false;
@@ -347,10 +360,11 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
+      withData: kIsWeb, // di web path file tidak tersedia, jadi isi file diambil langsung
     );
-    if (result != null && result.files.single.path != null) {
+    if (result != null && result.files.isNotEmpty) {
       setState(() {
-        _lampiranPath = result.files.single.path;
+        _lampiran = result.files.single;
         _lampiranNama = result.files.single.name;
       });
     }
@@ -391,7 +405,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
           jenisSuratId: _jenisSuratId!,
           keperluan: _keperluanController.text.trim(),
           metodeTandaTangan: _metodeTtd,
-          lampiranPath: _lampiranPath,
+          lampiran: _lampiran,
           aiMeta: _aiMeta,
           dataPemohon: {
             'pekerjaan': _pekerjaanController.text.trim(),
@@ -898,6 +912,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
                 _legenda(),
                 const SizedBox(height: 14),
                 if (kurang.isNotEmpty) ...[_bannerKurang(kurang), const SizedBox(height: 14)],
+                if (_ditolak.isNotEmpty) ...[_bannerDitolak(), const SizedBox(height: 14)],
                 _sectionSuratIni(),
                 const SizedBox(height: 14),
                 _sectionSyarat(),
@@ -1060,6 +1075,55 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
         ),
       );
 
+  static const _labelKolom = {
+    'jenis_surat': 'Jenis surat',
+    'keperluan': 'Keperluan',
+    'tujuan': 'Tujuan surat',
+    'metode_tanda_tangan': 'Metode tanda tangan',
+    'pekerjaan': 'Pekerjaan',
+    'jenis_kelamin': 'Jenis kelamin',
+    'tempat_lahir': 'Tempat lahir',
+    'tanggal_lahir': 'Tanggal lahir',
+    'status_kawin': 'Status perkawinan',
+    'kewarganegaraan': 'Kewarganegaraan',
+    'keterangan_lain': 'Keterangan lain',
+  };
+
+  // Transparansi guardrail: kolom yang sengaja TIDAK diisi AI beserta alasannya
+  Widget _bannerDitolak() => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          border: Border.all(color: const Color(0xFFCBD5E1)),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.shield_outlined, size: 18, color: Color(0xFF475569)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('AI tidak mengisi kolom berikut, silakan isi sendiri',
+                      style: AppTypography.bodySmall
+                          .copyWith(color: const Color(0xFF334155), fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            for (final d in _ditolak)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '• ${_labelKolom[d['kolom']] ?? d['kolom']}: ${d['alasan']}',
+                  style: AppTypography.bodySmall.copyWith(color: const Color(0xFF475569), height: 1.4),
+                ),
+              ),
+          ],
+        ),
+      );
+
   Widget _card({required Widget child}) => Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -1132,7 +1196,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
                   tooltip: 'Hapus lampiran',
                   icon: const Icon(Icons.close_rounded, size: 18),
                   onPressed: () => setState(() {
-                    _lampiranPath = null;
+                    _lampiran = null;
                     _lampiranNama = null;
                   }),
                 ),

@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
@@ -307,10 +310,10 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
             final namaWarga = data['nama_lengkap']?.toString() ?? data['nama_warga']?.toString() ?? '-';
             final nik = data['nik']?.toString() ?? '-';
             final alamat = data['alamat']?.toString() ?? '-';
-            final noTelepon = data['nomor_telepon']?.toString() ?? '0812-3456-7890';
+            final noTelepon = data['nomor_telepon']?.toString() ?? '-';
             final catatanRevisi = data['catatan_revisi']?.toString() ?? data['catatan']?.toString();
             final alasanTolak = data['alasan_penolakan']?.toString();
-            final lampiran = data['lampiran_url']?.toString();
+            final lampiran = (data['berkas_lampiran_url'] ?? data['lampiran_url'])?.toString();
 
             final isPending = status == 'diajukan' || status == 'diproses';
             final isDone = status == 'selesai' || status == 'disetujui';
@@ -360,9 +363,11 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
                           const SizedBox(height: AppSpacing.md),
                         ],
 
-                        // Dokumen Lampiran Berkas Box (if any)
-                        _buildAttachmentPreviewBox(lampiran: lampiran),
-                        const SizedBox(height: AppSpacing.lg),
+                        // Lampiran pemohon (hanya tampil bila warga mengunggah berkas)
+                        if (lampiran != null && lampiran.isNotEmpty) ...[
+                          _buildAttachmentPreviewBox(lampiran: lampiran),
+                          const SizedBox(height: AppSpacing.lg),
+                        ],
 
                         // Realistic RT Official Letterhead Preview (Figma #68:2063)
                         _buildLetterheadPaperPreview(
@@ -704,7 +709,9 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
     );
   }
 
-  Widget _buildAttachmentPreviewBox({required String? lampiran}) {
+  Widget _buildAttachmentPreviewBox({required String lampiran}) {
+    final nama = lampiran.split('/').last;
+    final ext = nama.contains('.') ? nama.split('.').last.toUpperCase() : 'FILE';
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
@@ -717,65 +724,94 @@ class _LetterDetailScreenState extends ConsumerState<LetterDetailScreen> {
         children: [
           Text(
             'Berkas Lampiran Pendukung',
-            style: AppTypography.labelBold.copyWith(
-              color: AppColors.textPrimary,
-              fontSize: 14,
-            ),
+            style: AppTypography.labelBold.copyWith(color: AppColors.textPrimary, fontSize: 14),
           ),
           const SizedBox(height: AppSpacing.sm),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AppColors.secondary,
-                    borderRadius: BorderRadius.circular(8),
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _bukaLampiran(lampiran),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.secondary,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.file_present_rounded, color: AppColors.primaryAccent, size: 22),
                   ),
-                  child: const Icon(
-                    Icons.file_present_rounded,
-                    color: AppColors.primaryAccent,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        lampiran != null
-                            ? lampiran.split('/').last
-                            : 'Dokumen_KTP_KK_Pemohon.pdf',
-                        style: AppTypography.labelBold.copyWith(fontSize: 13),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        'Lampiran Terverifikasi • 1.2 MB',
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.textSecondary,
-                          fontSize: 11,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          nama,
+                          style: AppTypography.labelBold.copyWith(fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                    ],
+                        Text(
+                          '$ext • ketuk untuk melihat',
+                          style: AppTypography.caption.copyWith(color: AppColors.textSecondary, fontSize: 11),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const Icon(
-                  Icons.open_in_new_rounded,
-                  size: 18,
-                  color: AppColors.primaryAccent,
-                ),
-              ],
+                  const Icon(Icons.open_in_new_rounded, size: 18, color: AppColors.primaryAccent),
+                ],
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Tampilkan lampiran (gambar / PDF) yang diunduh dengan token login.
+  Future<void> _bukaLampiran(String key) async {
+    final isPdf = key.toLowerCase().endsWith('.pdf');
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: SizedBox(
+          width: 520,
+          height: 640,
+          child: FutureBuilder<List<int>>(
+            future: ref.read(letterRepositoryProvider).getFileBytes(key),
+            builder: (ctx, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final bytes = snap.data;
+              if (snap.hasError || bytes == null || bytes.isEmpty) {
+                return const Center(child: Text('Lampiran tidak dapat dibuka'));
+              }
+              final data = Uint8List.fromList(bytes);
+              return Column(
+                children: [
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                  ),
+                  Expanded(
+                    child: isPdf
+                        ? SfPdfViewer.memory(data)
+                        : InteractiveViewer(child: Image.memory(data, fit: BoxFit.contain)),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }
