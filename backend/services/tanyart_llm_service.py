@@ -40,10 +40,10 @@ Pedoman Wajib:
 
 
 def _settings():
-    url = os.environ.get("TANYART_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
+    url = (os.environ.get("TANYART_LLM_BASE_URL") or os.environ.get("LLM_BASE_URL") or getattr(Config, "LLM_BASE_URL", None) or "http://127.0.0.1:11434/v1").strip()
     # Model wajib non-thinking: model reasoning (mis. qwen3:4b) menghabiskan >20 s per jawaban.
-    model = os.environ.get("TANYART_LLM_MODEL", "qwen2.5:3b-instruct").strip()
-    endpoint = urlsplit(url.strip())
+    model = (os.environ.get("TANYART_LLM_MODEL") or os.environ.get("LLM_MODEL") or getattr(Config, "LLM_MODEL", None) or "qwen2.5:3b-instruct").strip()
+    endpoint = urlsplit(url)
     campus = endpoint.hostname == "ollama.ebruar.my.id" and endpoint.scheme == "https" and endpoint.port in (None, 443)
     local = endpoint.hostname in ("127.0.0.1", "localhost", "::1", "192.168.88.237") and endpoint.scheme in ("http", "https")
     if not (campus or local) or endpoint.username or endpoint.password or endpoint.query or endpoint.fragment or endpoint.path.rstrip("/") != "/v1" or not model or "cloud" in model.lower():
@@ -66,8 +66,10 @@ def _chat(messages, deadline):
         raise TimeoutError()
     headers = {"Content-Type": "application/json"}
     if campus:
-        headers.update({"CF-Access-Client-Id": os.environ["CF_CLIENT_ID"],
-                        "CF-Access-Client-Secret": os.environ["CF_CLIENT_SECRET"]})
+        cf_id = getattr(Config, 'CF_CLIENT_ID', None) or os.environ.get("CF_CLIENT_ID", "")
+        cf_secret = getattr(Config, 'CF_CLIENT_SECRET', None) or os.environ.get("CF_CLIENT_SECRET", "")
+        if cf_id and cf_secret:
+            headers.update({"CF-Access-Client-Id": cf_id, "CF-Access-Client-Secret": cf_secret})
     transport = http.client.HTTPSConnection if endpoint.scheme == "https" else http.client.HTTPConnection
     conn = transport(endpoint.hostname, endpoint.port, timeout=remaining)
     try:

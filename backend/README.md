@@ -1,34 +1,52 @@
-# RTConnect — Backend REST API
+# RTConnect Backend Blueprint
 
-Flask REST API for RTConnect. Letter drafts are built from a deterministic template. Tanya RT ranks knowledge chunks with lexical cosine similarity, simple Indonesian stemming, topic/action boosts, and a scope guard; it does not call an LLM or use embeddings. Returned retrieval scores are heuristic, not model confidence. `database/seed.py` imports the 20 public government references from `chatbot/dataset/knowledgebase.jsonl`.
+## System Overview
+The RTConnect backend is a modular Flask REST API serving administrative workflows for Indonesian neighborhood units (Rukun Tetangga / RT). It manages citizen registration, authentication, official administrative letter drafting, digital signing with PIN verification, incoming review queues for RT administrators, push notifications, and the TanyaRT resident conversational assistant.
 
-## Stack
+TanyaRT runtime uses lexical cosine similarity, simple Indonesian stemming, topic/action boosts, and scope guards without relying on external LLMs or vector databases. Letter drafts are synthesized deterministically from structured templates, while ReportLab renders branded official PDF documents with QR verification codes.
 
-- Python 3.12+, Flask, Gunicorn
-- MySQL 8.4+, PyMySQL with TLS support
-- JWT HS256 with one-day expiry; bcrypt password and RT signing-PIN hashes
-- Private local storage for development or private S3-compatible object storage for production
-- ReportLab PDF generation; displayed signature images are not cryptographic PDF signatures
+### Stack
+- Python 3.12+, Flask 3.x, Gunicorn WSGI
+- PostgreSQL 14+ (Supabase) via `psycopg` and `psycopg_pool`, with legacy MySQL compatibility
+- JWT HS256 authentication with 1-day expiration and bcrypt hashing for passwords and RT signing PINs
+- Dual-mode private storage: local filesystem (`backend/uploads`) for development or S3-compatible buckets for production
+- ReportLab PDF generation for official letter issuance
+- Firebase Admin SDK for FCM mobile push notifications
 
-JWT signing uses one stable secret shared by every API worker and replica. Local development has a fixed development-only fallback so Gunicorn workers can verify each other's tokens. Production has no fallback: configure the same randomly generated `JWT_SECRET` for every process, keep it stable across restarts, and rotate it only when you intend to sign out all users.
+JWT signing requires a stable secret shared across all workers. In local development, a fixed development fallback is available. Production strictly requires an explicitly configured, high-entropy `JWT_SECRET`.
 
-## Important files
+## Local Interface & Invariants
+Direct entrypoints and configuration modules located in the `backend/` root directory:
+- `app.py`: Flask application factory (`create_app()`) registering blueprints, error handlers, and `/api/v1/health`.
+- `config.py`: Environment configuration class (`Config`) validating required secrets, database credentials, and production constraints.
+- `test_api.py`: Comprehensive API integration test suite covering authentication, letter lifecycle, and role permissions.
+- `run_bdd.py`: CLI test runner executing Behave BDD acceptance features with custom path and tag filtering.
+- `setup_supabase.py`: Automated setup script configuring remote Supabase storage buckets and database connections.
+- `evaluate_runtime.py`: Offline evaluation script measuring runtime retrieval ranking without requiring database connectivity.
+- `regresi_retrieval_offline.py` & `bandingkan_model.py`: Benchmark scripts evaluating lexical vs embedding retrieval models.
+- `Dockerfile` & `Procfile`: Containerization and process definitions for container platforms and Gunicorn deployment.
 
-- `app.py`: Flask application and health endpoint
-- `config.py`: environment-based configuration and production validation
-- `database/schema.sql`: canonical schema
-- `database/migrate.py`: versioned schema migration, including upgrades from the previous column names
-- `database/seed.py`: idempotent master data; demo accounts are disabled by default
-- `database/create_rt_user.py`: interactive first RT account setup
-- `database/hash_rt_pin.py`: interactively generate `RT_SIGNING_PIN_HASH`
-- `database/sync_local_uploads_to_s3.py`: copy existing local uploads to the configured private bucket
-- `services/file_storage.py`: content validation and local/S3-compatible storage
-- `services/rag_service.py`: runtime chatbot ranking and answer/fallback result
-- `services/chatbot_rules.py`: topic/action rules and scope guard shared by runtime
-- `chatbot/evaluate_runtime.py`: runtime retrieval evaluation without MySQL
-- `test_api.py`: MySQL-backed API integration suite
+## Subdirectories & System Boundaries
+- [chatbot](./chatbot/README.md): Offline evaluation pipeline, dense embeddings, benchmark datasets, and linguistic rule research for TanyaRT.
+- [database](./database/README.md): PostgreSQL/Supabase connection pooling (`psycopg_pool`), schema migrations, and master data seeding scripts.
+- [features](./features/README.md): Gherkin BDD scenario suites (`sprint1`, `sprint2`) and Behave execution harness (`environment.py`).
+- [middleware](./middleware/README.md): Request interception middleware enforcing JWT Bearer token authentication and Role-Based Access Control (`warga`, `rt`, `admin`).
+- [routes](./routes/README.md): Flask REST API route blueprints mounted under `/api/v1` (`auth`, `letters`, `chatbot`, `notifications`).
+- [services](./services/README.md): Core business logic services, PDF letter compilation, lexical RAG chatbot, AI form parsing, and notification handlers.
+- [supabase_connect](./supabase_connect/README.md): PostgREST client abstraction and Repository pattern implementations for Supabase tables.
 
-## Local setup
+## Global Invariants
+- API Envelope: All `/api/v1` endpoints consistently respond with JSON envelope format `{ "success": bool, "message": str, "data": any, "error": any }`.
+- Role-Based Access: Three canonical roles are recognized: `warga`, `rt`, and `admin`. Requests without requisite permissions return HTTP 403 `FORBIDDEN`.
+- Production Guardrails: `APP_ENV=production` enforces fast failure on missing `JWT_SECRET`, unconfigured `RT_SIGNING_PIN_HASH`, missing S3 bucket configuration, or enabled demo seeding flags (`SEED_DEMO_USERS=true`).
+- Separation of Concerns: The production runtime API must never import heavy offline ML dependencies from `backend/chatbot/`.
+
+## Global Side Effects
+- Relational Database: State mutations across citizen accounts, letter applications, audit logs, and notification records.
+- Storage Assets: File creation and deletion for uploaded applicant identity cards, signatures, and compiled letter PDFs.
+- External Integrations: Dispatches push notifications to Firebase Cloud Messaging (FCM) and outbound requests to Google Gemini (when AI form-filling is used).
+
+## Local Setup
 
 From the repository root, copy `.env.example` to `.env`, change the local passwords, then run:
 
@@ -44,15 +62,15 @@ docker compose exec api python -m database.create_rt_user
 
 Then register a resident in the Flutter app. To allow digital signing locally, generate a PIN hash with `docker compose exec api python -m database.hash_rt_pin`, put the hash in `.env` as `RT_SIGNING_PIN_HASH`, and restart the API. Never use demo credentials in a public environment.
 
-## Production
+## Production Deployment
 
-Do not run the Flask development server in production. Deploy the Docker image behind an HTTPS-enabled container host, use a managed MySQL database with a trusted CA certificate, and configure a private S3-compatible bucket. The application process does not run migrations or seed accounts at startup.
+Do not run the Flask development server in production. Deploy the Docker image behind an HTTPS-enabled container host, use a managed PostgreSQL/Supabase database with a trusted CA certificate, and configure a private S3-compatible bucket. The application process does not run migrations or seed accounts at startup.
 
 Run `python -m database.migrate` once as a release command using a migration database credential. Run `python -m database.seed` for master letter types and knowledge content. Create the initial RT account with `python -m database.create_rt_user` in a protected one-off shell. See [`../DEPLOYMENT.md`](../DEPLOYMENT.md) for the production environment and Flutter build steps.
 
 Demo users can only be seeded when `SEED_DEMO_USERS=true` outside production. Production startup rejects that setting.
 
-## API endpoints
+## API Endpoints
 
 | Method | Path | Access |
 |---|---|---|
@@ -71,8 +89,6 @@ Demo users can only be seeded when `SEED_DEMO_USERS=true` outside production. Pr
 | GET | `/api/v1/letters/:id/download` | Owner, RT, or admin |
 | POST | `/api/v1/chatbot/query` | Resident |
 | GET | `/api/v1/notifications` | Authenticated |
-
-The GitHub Actions workflow compiles the backend Python files and analyzes Flutter code. It can build the web release artifact and signed Android APK/AAB when the repository variables and signing secrets are configured. The MySQL-backed API integration script is available for manual use in an isolated test database.
 
 ## Behavior-Driven Development (BDD)
 
@@ -93,3 +109,6 @@ python run_bdd.py --tags=@issue-11
 python run_bdd.py features/sprint2
 python run_bdd.py --tags=@sprint2
 ```
+
+## System Verification
+- Run: `cd backend && python test_api.py`

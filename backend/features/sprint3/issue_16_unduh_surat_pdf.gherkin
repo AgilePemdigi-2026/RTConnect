@@ -1,0 +1,60 @@
+@sprint3 @issue-16 @pdf @download
+Feature: [Issue #16] Fitur Pratinjau dan Unduh Berkas Surat Pengantar PDF Resmi
+  As a registered resident or RT administrator
+  I want to preview and download official signed letter PDF documents
+  So that administrative letters can be verified, printed, and used for formal requirements
+
+  Background:
+    Given the RTConnect backend application is ready
+    And the resident "resident@example.test" and the RT head "rt@example.test" are logged in with password "LocalTestOnly#2026"
+
+  Scenario: Warga berhasil mengunduh berkas PDF surat resmi yang telah disahkan
+    Given an approved and digitally signed "DOM" letter application exists for the resident
+    When the resident requests to download the official letter PDF
+    Then the response status code should be 200
+    And the response content type should be "application/pdf"
+    And the downloaded file should be a valid PDF
+    And the response binary length should be at least 1000 bytes
+    And the response header "Content-Disposition" should contain "attachment"
+    And the response header "Content-Disposition" should contain ".pdf"
+
+  Scenario: Warga mengakses pratinjau dokumen PDF resmi secara in-app
+    Given an approved and digitally signed "KTP" letter application exists for the resident
+    When the resident requests to preview the official letter PDF
+    Then the response status code should be 200
+    And the response content type should be "application/pdf"
+    And the downloaded file should be a valid PDF
+
+  Scenario: Pengunduhan berkas ditolak jika pengajuan surat belum disahkan
+    Given an unapproved letter application with status "diajukan" exists for the resident
+    When the resident requests to download the official letter PDF
+    Then the response status code should be 404
+    And the response JSON should indicate failure
+    And the response field "error" should be "NOT_FOUND"
+
+  Scenario: Warga dilarang mengunduh dokumen surat milik warga lain
+    Given an approved and digitally signed letter application belongs to another resident
+    When the resident attempts to download the other resident's letter PDF
+    Then the response status code should be 403
+    And the response JSON should indicate failure
+    And the response field "error" should be "FORBIDDEN"
+
+  Scenario: Ketua RT dapat mengunduh dan memeriksa berkas PDF resmi warga yang telah disahkan
+    Given an approved and digitally signed "DOM" letter application exists for the resident
+    When the RT head requests to download the official letter PDF
+    Then the response status code should be 200
+    And the response content type should be "application/pdf"
+    And the downloaded file should be a valid PDF
+
+  Scenario: Pengunduhan berkas dengan ID pengajuan tidak terdaftar menghasilkan 404
+    When the resident requests to download a letter PDF with non-existent ID 999999
+    Then the response status code should be 404
+    And the response JSON should indicate failure
+    And the response field "error" should be "NOT_FOUND"
+
+  Scenario: Pengunduhan berkas ditolak tanpa token autentikasi
+    Given an approved and digitally signed "DOM" letter application exists for the resident
+    When an unauthenticated user requests to download the official letter PDF
+    Then the response status code should be 401
+    And the response JSON should indicate failure
+    And the response field "error" should be "UNAUTHORIZED"
