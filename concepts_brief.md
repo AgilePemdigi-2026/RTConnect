@@ -25,7 +25,7 @@ Inisiatif untuk mengalihkan seluruh fungsionalitas kecerdasan buatan pada aplika
 ### 2. Inventive Contradictions & Resolusi Pola (TRIZ)
 - **Kontradiksi 1: Model Ringan (3B) vs Ketepatan Ekstraksi Formulir**:
   - *Masalah*: Model 3B parameter memiliki kedalaman penalaran lebih rendah dibanding model komersial cloud, berisiko mengabaikan kutipan bukti (*grounding*) atau keliru memilih opsi enum surat.
-  - *Resolusi (Prinsip TRIZ #10 - Preliminary Action)*: Mengandalkan `ai_guardrails.py` untuk memverifikasi teks kutipan secara deterministik. Jika ekstraksi model tidak lolos validasi, kolom otomatis diisi dari profil akun kependudukan warga yang tersimpan di Supabase (`sumber: 'tersimpan'`).
+  - *Resolusi (Prinsip TRIZ #10 - Preliminary Action)*: Mengandalkan `ai_guardrails.py` untuk memverifikasi teks kutipan secara deterministik. Jika ekstraksi model tidak lolos validasi, kolom otomatis diisi dari profil akun kependudukan warga yang tersimpan di database MySQL lokal (`sumber: 'tersimpan'`).
 - **Kontradiksi 2: Fluktuasi Latensi Server Kampus vs Batas Waktu SLA Warga**:
   - *Masalah*: Server kampus dipakai bersama oleh civitas akademika sehingga latensi inferensi bisa melonjak di atas 5 detik saat jam sibuk.
   - *Resolusi (Prinsip TRIZ #24 - Intermediary & Asymmetric Budget)*: TanyaRT mematok batas waktu inferensi ketat maksimal 4.5 detik. Bila antrean macet, sistem seketika memotong proses LLM dan langsung mengembalikan potongan teks dokumen resmi yang terverifikasi tanpa memunculkan pesan error di layar warga.

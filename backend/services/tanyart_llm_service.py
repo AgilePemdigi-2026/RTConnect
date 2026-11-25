@@ -66,8 +66,10 @@ def _chat(messages, deadline):
         raise TimeoutError()
     headers = {"Content-Type": "application/json"}
     if campus:
-        headers.update({"CF-Access-Client-Id": os.environ["CF_CLIENT_ID"],
-                        "CF-Access-Client-Secret": os.environ["CF_CLIENT_SECRET"]})
+        cf_id = getattr(Config, 'CF_CLIENT_ID', None) or os.environ.get("CF_CLIENT_ID", "")
+        cf_secret = getattr(Config, 'CF_CLIENT_SECRET', None) or os.environ.get("CF_CLIENT_SECRET", "")
+        if cf_id and cf_secret:
+            headers.update({"CF-Access-Client-Id": cf_id, "CF-Access-Client-Secret": cf_secret})
     transport = http.client.HTTPSConnection if endpoint.scheme == "https" else http.client.HTTPConnection
     conn = transport(endpoint.hostname, endpoint.port, timeout=remaining)
     try:

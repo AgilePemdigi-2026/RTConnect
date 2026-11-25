@@ -16,5 +16,5 @@ TEST-07B,Verifikasi Supabase Live (Koneksi & Persistence),SKIP,"Koneksi live dan
 TEST-08,Pengelolaan Dokumen Basis Pengetahuan RT (REQ-7),PASS,"Chunking Algoritma OK (4 chunks): True, Warga Rejected 403: True, RT Allowed 201: True"
 TEST-09A,Batas Privasi Outbound Sebelum Panggilan Eksternal,PASS,"NIK Masked: True, HP Masked: True, Kredensial Zero-Outbound: True, Kueri Normal Terproses: True"
 TEST-09B,Kontrak API Flutter & Draf WhatsApp 4 Quick Prompts (SRS REQ-6),PASS,"Kontrak Flutter Valid: True, Draf WA: True, Semantik Unified: True, Leksikal Unified: True, LLM Fallback WA: True, Kalender Bersyarat: True"
-TEST-10A,Offline Retrieval Latency Benchmark,PASS,"Benchmark Offline: Rata-rata 29.75 ms, Maksimum 33.92 ms (Batas NFR 5.1: 5000 ms)"
+TEST-10A,Offline Retrieval Latency Benchmark,PASS,"Benchmark Offline: Rata-rata 24.21 ms, Maksimum 28.00 ms (Batas NFR 5.1: 5000 ms)"
 TEST-10B,Live End-to-End Latency Benchmark,SKIP,"Pengujian latensi end-to-end live ditunda (SKIP) sampai seluruh stack (Flask API, Supabase PostgreSQL, retrieval leksikal, dan Ollama) diuji bersama dalam koneksi jaringan live."

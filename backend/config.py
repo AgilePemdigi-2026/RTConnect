@@ -89,13 +89,13 @@ class Config:
     LLM_BASE_URL = os.getenv('LLM_BASE_URL', '').strip()
     LLM_API_KEY = os.getenv('LLM_API_KEY', 'ollama')
     LLM_MODEL = os.getenv('LLM_MODEL', 'qwen2.5:3b-instruct')
-    LLM_TIMEOUT_SECONDS = float(os.getenv('LLM_TIMEOUT_SECONDS', '15'))
+    LLM_TIMEOUT_SECONDS = float(os.getenv('LLM_TIMEOUT_SECONDS', '8.0'))
     TANYART_LLM_BASE_URL = os.getenv('TANYART_LLM_BASE_URL', '').strip() or LLM_BASE_URL
     TANYART_LLM_MODEL = os.getenv('TANYART_LLM_MODEL', '').strip() or LLM_MODEL
     GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-flash-latest')
     GEMINI_FALLBACK_MODELS = [m.strip() for m in os.getenv(
         'GEMINI_FALLBACK_MODELS', 'gemini-flash-latest,gemini-flash-lite-latest').split(',') if m.strip()]
-    TANYART_LLM_TIMEOUT = float(os.getenv('TANYART_LLM_TIMEOUT', '5.0'))
+    TANYART_LLM_TIMEOUT = float(os.getenv('TANYART_LLM_TIMEOUT', '4.5'))
     CF_CLIENT_ID = os.getenv('CF_CLIENT_ID', '').strip()
     CF_CLIENT_SECRET = os.getenv('CF_CLIENT_SECRET', '').strip()
 
