@@ -301,6 +301,8 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                               if (msg.citation != null) ...[
                                 const SizedBox(height: 6),
                                 Container(
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 280),
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 10,
                                     vertical: 4,
@@ -321,12 +323,15 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                                         color: Color(0xFF475569),
                                       ),
                                       const SizedBox(width: 6),
-                                      Text(
-                                        'Rujukan: ${msg.citation}',
-                                        style: AppTypography.caption.copyWith(
-                                          color: const Color(0xFF475569),
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 11,
+                                      Flexible(
+                                        child: Text(
+                                          'Rujukan: ${msg.citation}',
+                                          softWrap: true,
+                                          style: AppTypography.caption.copyWith(
+                                            color: const Color(0xFF475569),
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 11,
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -417,7 +422,9 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                                   msg.whatsappUrl != null) ...[
                                 const SizedBox(height: AppSpacing.sm),
                                 Container(
-                                  width: 280,
+                                  width: double.infinity,
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 280),
                                   padding: const EdgeInsets.all(AppSpacing.md),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFF0FDF4),
