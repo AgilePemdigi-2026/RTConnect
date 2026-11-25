@@ -1,0 +1,20 @@
+﻿sep=,
+test_id,title,status,detail
+TEST-01,Regresi Retrieval Offline 26 Kasus,PASS,Lolos 26/26 kasus
+TEST-02,Uji Vektor Lokal: Cosine Similarity & Search,PASS,"Kalkulasi Cosine: PASS, Vector Match: PASS (score=0.9983). Mode produksi TanyaRT memakai retrieval leksikal."
+TEST-03A,Percakapan Multi-Turn & Konteks Sesi,PASS,Turn 1: Pertanyaan KTP Hilang: OK (got=RTC-014) | Turn 2: Pertanyaan lanjutan syarat KTP hilang: OK (got=RTC-033) | Turn 3: Pertanyaan lanjutan aksi rusak (mewarisi topik KTP): OK (got=RTC-015)...
+TEST-03B,4 Quick Prompts Flutter & Kontrol Tanpa Sumber,PASS,Lolos 13/13 skenario: Quick Prompt 1: 'Syarat Surat SKCK' -> Ditemukan RTC-025 dengan citation resmi: OK; Kontrol SKCK: Sumber hilang -> Fallback PERLU_VERIFIKASI (citation=None): OK...
+TEST-03C,Pergantian Topik Sesi Panjang (>5 Pesan) via Endpoint & DESC LIMIT 5,PASS,"Query SQL DESC LIMIT 5: True, Respon Mengikuti SKCK: True, KTP Tidak Muncul: True"
+TEST-03D,Keamanan Backfill Embedding (Dry-Run Read-Only & Zero-API Call),PASS,Dry-run sukses tanpa memanggil API provider berbayar: True (ret_code=0)
+TEST-04,Isolasi Sesi dan Penolakan Akses Antar Pengguna,PASS,"Forbidden 403: True, Allowed 200: True, 404 Not Found: True"
+TEST-05,Strict Grounding & Anti-Prompt Injection,PASS,"Citation Valid: True, Deterministik Grounded: True, Injeksi Terblokir: 3/3"
+TEST-06A,Endpoint eksternal ditolak,PASS,KTP-el Hilang (RTC-014)
+TEST-06B,Kontrak HTTP Ollama lokal (simulasi),PASS,KTP-el Hilang (RTC-014)
+TEST-06C,Timeout lokal dan fallback,PASS,KTP-el Hilang (RTC-014)
+TEST-07A,Pemeriksaan Skema Supabase Lokal (DDL / skema.txt),PASS,"Skema 5/5 tabel valid di skema.txt (chatsession, chatmessage, retrievallog, knowledgebase, knowledgechunk)"
+TEST-07B,Verifikasi Supabase Live (Koneksi & Persistence),SKIP,"Koneksi live dan pemeriksaan skema read-only sukses (5/5 tabel ditemukan: chatmessage, chatsession, knowledgebase, knowledgechunk, retrievallog). Uji persistence (tulis & baca balik data sintetis) SKIP sampai dijalankan pada database uji terkonfirmasi."
+TEST-08,Pengelolaan Dokumen Basis Pengetahuan RT (REQ-7),PASS,"Chunking Algoritma OK (4 chunks): True, Warga Rejected 403: True, RT Allowed 201: True"
+TEST-09A,Batas Privasi Outbound Sebelum Panggilan Eksternal,PASS,"NIK Masked: True, HP Masked: True, Kredensial Zero-Outbound: True, Kueri Normal Terproses: True"
+TEST-09B,Kontrak API Flutter & Draf WhatsApp 4 Quick Prompts (SRS REQ-6),PASS,"Kontrak Flutter Valid: True, Draf WA: True, Semantik Unified: True, Leksikal Unified: True, LLM Fallback WA: True, Kalender Bersyarat: True"
+TEST-10A,Offline Retrieval Latency Benchmark,PASS,"Benchmark Offline: Rata-rata 29.75 ms, Maksimum 33.92 ms (Batas NFR 5.1: 5000 ms)"
+TEST-10B,Live End-to-End Latency Benchmark,SKIP,"Pengujian latensi end-to-end live ditunda (SKIP) sampai seluruh stack (Flask API, Supabase PostgreSQL, retrieval leksikal, dan Ollama) diuji bersama dalam koneksi jaringan live."
