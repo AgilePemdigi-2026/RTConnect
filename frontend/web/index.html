@@ -41,6 +41,11 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <!-- PDF viewer (syncfusion_flutter_pdfviewer) di web butuh PdfJs untuk menampilkan halaman PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+  <script type="text/javascript">
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js";
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
