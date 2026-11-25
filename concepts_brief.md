@@ -1,41 +1,64 @@
-# Migrasi LLM RTConnect ke Server Ollama
+# Migrasi Penuh LLM RTConnect ke Server Kampus (Ollama)
 
 * **Author:** Dhafin-dev
 * **Date:** 2026-11-25
 
 ## Overview
 
-Inisiatif untuk mengalihkan pemrosesan kecerdasan buatan (Large Language Model) pada aplikasi administrasi RTConnect dari penyedia cloud eksternal (Google Gemini API dan OpenAI API) ke server mandiri berbasis **Ollama**. Tujuannya adalah mencapai kemandirian infrastruktur, privasi data lokal kependudukan, serta mengurangi ketergantungan kuota atau biaya API eksternal.
+Inisiatif untuk mengalihkan seluruh fungsionalitas kecerdasan buatan pada aplikasi administrasi RTConnect (asisten formulir persuratan dan chatbot TanyaRT) secara 100% ke server lokal/kampus berbasis **Ollama** (`qwen2.5:3b-instruct`), tanpa bergantung pada penyedia cloud berbayar (Google Gemini API atau OpenAI API). Pembaruan ini selaras dengan perubahan terbaru pada upstream repositori (`upstream/main`), yang menonaktifkan embedding eksternal dan menyediakan jalur endpoint lokal non-thinking.
 
-## Landasan Arsitektur Komponen AI RTConnect
+## Analysis
 
-Saat ini fitur AI di RTConnect terbagi ke dalam 3 komponen berbeda:
+### 1. Evaluasi Lensa Desain, Keamanan, & Basis Kode
+- **Asimetri Autentikasi Cloudflare Access**:
+  - `tanyart_llm_service.py` telah memvalidasi host kampus (`ollama.ebruar.my.id`) dan menginjeksikan header `CF-Access-Client-Id` serta `CF-Access-Client-Secret`.
+  - `ai_fill_service.py` saat ini **belum** mengirimkan header Cloudflare Access pada `_call_openai_compatible`, sehingga pemanggilan formulir surat ke domain kampus akan langsung diblokir dengan `HTTP 403 Forbidden`.
+- **Penghapusan Total Jejak Cloud (Zero-Cloud Invariant)**:
+  - Jalur pemanggilan sekunder ke Google Gemini API pada `ai_fill_service.py` (`_call_gemini_api`) dinonaktifkan secara permanen.
+  - Jika Ollama mengalami gangguan, sistem langsung beralih ke fallback deterministik lokal (data profil tersimpan dan template baku) tanpa mencoba melakukan *egress* jaringan ke cloud eksternal.
+- **Kedaulatan & Kepatuhan Privasi (UU PDP No. 27/2022)**:
+  - Dengan berjalannya seluruh inferensi di server kampus, cerita dan narasi pengajuan warga tidak pernah dikirim ke infrastruktur luar negeri.
+- **Pengendalian Antrean & Konkurensi**:
+  - `tanyart_llm_service.py` membatasi beban aktif dengan `BoundedSemaphore(2)`.
+  - `ai_fill_service.py` perlu diselaraskan agar panggilan simultan dari banyak warga tidak membanjiri (*overload*) satu worker server kampus yang kapasitas VRAM-nya terbatas.
 
-| Komponen | Berkas Sumber | Penyedia Saat Ini | Tugas & Karakteristik |
-|---|---|---|---|
-| **Asisten Pengisi Formulir (AI Fill)** | `backend/services/ai_fill_service.py` | Google Gemini API / OpenAI-Compatible | Menerima teks bebas dari warga, mengekstrak data demografi ke dalam format JSON ketat sesuai skema `applicant_data.py`. |
-| **Sintesis TanyaRT (RAG)** | `backend/services/tanyart_llm_service.py` | Google Gemini API (`genai.Client`) | Mengambil teks konteks dari database, meminta LLM menyusun jawaban singkat (2-4 kalimat) santun dengan batas waktu maksimal 5 detik. |
-| **Pencarian Semantik (Embedding)** | `backend/services/semantic_embedding_service.py` | OpenAI API (`text-embedding-3-small`) | Mengonversi teks pertanyaan menjadi vektor numerik 1536-dimensi untuk menghitung cosine similarity terhadap dokumen aturan RT. |
+### 2. Inventive Contradictions & Resolusi Pola (TRIZ)
+- **Kontradiksi 1: Model Ringan (3B) vs Ketepatan Ekstraksi Formulir**:
+  - *Masalah*: Model 3B parameter memiliki kedalaman penalaran lebih rendah dibanding model komersial cloud, berisiko mengabaikan kutipan bukti (*grounding*) atau keliru memilih opsi enum surat.
+  - *Resolusi (Prinsip TRIZ #10 - Preliminary Action)*: Mengandalkan `ai_guardrails.py` untuk memverifikasi teks kutipan secara deterministik. Jika ekstraksi model tidak lolos validasi, kolom otomatis diisi dari profil akun kependudukan warga yang tersimpan di Supabase (`sumber: 'tersimpan'`).
+- **Kontradiksi 2: Fluktuasi Latensi Server Kampus vs Batas Waktu SLA Warga**:
+  - *Masalah*: Server kampus dipakai bersama oleh civitas akademika sehingga latensi inferensi bisa melonjak di atas 5 detik saat jam sibuk.
+  - *Resolusi (Prinsip TRIZ #24 - Intermediary & Asymmetric Budget)*: TanyaRT mematok batas waktu inferensi ketat maksimal 4.5 detik. Bila antrean macet, sistem seketika memotong proses LLM dan langsung mengembalikan potongan teks dokumen resmi yang terverifikasi tanpa memunculkan pesan error di layar warga.
 
-## Analisis Trade-Off & Kebutuhan Teknis
+## Goals vs. Non-Goals
 
-### 1. Topologi Jaringan & Kompatibilitas Endpoint
-- Ollama secara bawaan mengekspos endpoint OpenAI-compatible pada rute `/v1/chat/completions` dan `/v1/embeddings`.
-- Jika backend Flask berjalan di dalam Docker dan Ollama di host OS, target URL harus menggunakan `http://host.docker.internal:11434/v1`.
-- Jika Ollama di server jaringan kampus/lokal lain, target URL adalah IP spesifik (misal `http://192.168.x.x:11434/v1`).
+* **In-Scope Goals:**
+  - Menyelaraskan konfigurasi environment `backend/.env` untuk server kampus (`LLM_BASE_URL`, `TANYART_LLM_BASE_URL`, `LLM_MODEL`, `CF_CLIENT_ID`, `CF_CLIENT_SECRET`).
+  - Menambahkan dukungan header Cloudflare Access (`CF-Access-Client-Id` dan `CF-Access-Client-Secret`) pada `backend/services/ai_fill_service.py`.
+  - Menghapus ketergantungan dan pemanggilan fallback ke Google Gemini API di seluruh alur persuratan.
+  - Menyatukan konfigurasi dasar Ollama di `backend/config.py` agar tidak terjadi duplikasi setting yang membingungkan.
+  - Memverifikasi fungsionalitas melalui suite uji TanyaRT (`python backend/test_tanyart_full.py`) dan latensi non-destruktif (`python backend/ukur_latensi_lengkap.py`).
+* **Out-of-Scope Non-Goals:**
+  - Menyediakan server Ollama baru (memanfaatkan infrastruktur kampus yang sudah berjalan).
+  - Mengaktifkan model berukuran besar (>7B) atau model bertipe penalaran (*reasoning*) seperti Qwen-Thinking/DeepSeek-R1 yang membutuhkan waktu >20 detik per kueri.
+  - Mengaktifkan kembali model embedding eksternal (TanyaRT tetap beroperasi 100% pada pencarian leksikal deterministik).
 
-### 2. Kepatuhan Format JSON (Structured Outputs)
-- Gemini mendukung jaminan struktur skema JSON tingkat API (`response_schema`).
-- Model open-weight pada Ollama (seperti Llama-3.1, Qwen-2.5, Gemma-2) memerlukan prompt berdisiplin tinggi dan pembersihan regex output (menghilangkan wrapper markdown ` ```json `) agar tidak menggagalkan parsing data kependudukan.
+## Alternatives Weighed
 
-### 3. Keterbatasan Hardware, Latensi, dan Concurrency
-- Model lokal berukuran 7B hingga 14B parameter memerlukan VRAM GPU minimal 6 GB – 12 GB untuk inferensi cepat (< 3 detik).
-- Jika dijalankan pada CPU, inferensi per kueri dapat memakan waktu 10 hingga 30 detik.
-- Konkurensi multi-user pada satu server Ollama tanpa antrean terorkestrasi dapat menyebabkan penumpukan waktu tunggu yang memicu HTTP timeout pada klien Flutter.
+- **Alternatif 1: Model Campuran / Hybrid (Ollama Utama + Gemini Cadangan)**
+  - *Alasan Ditolak*: Pengguna secara tegas memilih opsi *Full gunakan Ollama* (100% on-premise) untuk menjamin kemandirian data kependudukan dan memutus ketergantungan kuota cloud.
+- **Alternatif 2: Model Besar 14B / 32B**
+  - *Alasan Ditolak*: Spesifikasi server kampus tidak diketahui. Model di atas 7B rentan memicu OOM (*Out of Memory*) dan latensi tinggi yang melanggar SLA batas waktu respon.
+- **Alternatif 3: Embedding Vektor Lokal di Ollama (bge-m3 / nomic-embed)**
+  - *Alasan Ditolak*: Evaluasi upstream membuktikan retrieval leksikal (TF-IDF + Indonesian stemming) telah lulus 100% pengujian fungsionalitas tanpa beban tambahan kueri vektor ke server kampus.
 
-## Status Pertanyaan Terbuka & Eksplorasi
+## Key Decisions & Staging for Next Steps
 
-1. **Cakupan Penggantian**: Menentukan apakah migrasi mencakup AI Form Fill saja, atau merombak TanyaRT synthesis dan semantic embedding sekaligus.
-2. **Kesiapan Infrastruktur Server Ollama**: Mengetahui spesifikasi komputasi (GPU vs CPU), nama model yang di-deploy, serta alamat jaringan server.
-3. **Penyelarasan SLA Kinerja**: Menilai apakah toleransi waktu tunggu 5 detik pada TanyaRT tetap dipertahankan atau disesuaikan.
-4. **Strategi Kegagalan (Fallback)**: Menetapkan alur aksi ketika Ollama gagal merespon atau menghasilkan teks yang tidak dapat di-parse.
+1. **Sinkronisasi Kode**: `git merge upstream/main` telah berhasil digabungkan tanpa konflik.
+2. **Implementasi Konfigurasi Server Kampus**:
+   - Menyetel variabel environment `backend/.env` dengan IP server Ollama kampus `http://192.168.88.237:11434/v1` dan model `qwen2.5:3b-instruct`.
+   - Memperbarui `backend/config.py` agar menyelaraskan `TANYART_LLM_BASE_URL` dan `TANYART_LLM_MODEL` dengan fallback otomatis ke `LLM_BASE_URL`.
+   - Memperbarui `backend/services/ai_fill_service.py` dengan normalisasi endpoint `/v1/chat/completions`, dukungan Cloudflare Access (`CF_CLIENT_ID`/`CF_CLIENT_SECRET`), dan penonaktifan total jalur pemanggilan eksternal Gemini (100% on-premise).
+   - Memperbarui `backend/services/tanyart_llm_service.py` dengan fallback terpadu ke `Config.LLM_BASE_URL` serta validasi whitelist endpoint `192.168.88.237`.
+3. **Hasil Verifikasi Uji**:
+   - Seluruh suite uji `backend/test_tanyart_full.py` lulus 100% (26/26 kasus regresi retrieval, strict grounding, anti-injeksi, dan simulasi kontrak HTTP Ollama).

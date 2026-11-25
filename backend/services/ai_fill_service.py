@@ -131,7 +131,9 @@ def _call_gemini(message: str, letter_types: list) -> dict:
     """
     if Config.LLM_BASE_URL:
         return _call_openai_compatible(message, letter_types)
-    return _call_gemini_api(message, letter_types)
+    if Config.GEMINI_API_KEY:
+        return _call_gemini_api(message, letter_types)
+    raise RuntimeError('Tidak ada provider AI aktif (LLM_BASE_URL atau GEMINI_API_KEY belum diatur).')
 
 
 def _build_user_prompt(message: str, letter_types: list) -> str:
@@ -162,6 +164,11 @@ def _parse_json_answer(text: str) -> dict:
 
 def _call_openai_compatible(message: str, letter_types: list) -> dict:
     """Server LLM OpenAI-compatible (Ollama). Memakai urllib, tanpa library tambahan."""
+    base_url = Config.LLM_BASE_URL.rstrip('/')
+    if not base_url.endswith('/v1'):
+        base_url += '/v1'
+    endpoint_url = base_url + '/chat/completions'
+
     body = json.dumps({
         'model': Config.LLM_MODEL,
         'messages': [
@@ -172,10 +179,17 @@ def _call_openai_compatible(message: str, letter_types: list) -> dict:
         'response_format': {'type': 'json_object'},
         'stream': False,
     }).encode('utf-8')
+
+    headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {Config.LLM_API_KEY or "ollama"}'}
+    if 'ollama.ebruar.my.id' in base_url or getattr(Config, 'CF_CLIENT_ID', None):
+        if getattr(Config, 'CF_CLIENT_ID', None) and getattr(Config, 'CF_CLIENT_SECRET', None):
+            headers['CF-Access-Client-Id'] = Config.CF_CLIENT_ID
+            headers['CF-Access-Client-Secret'] = Config.CF_CLIENT_SECRET
+
     request = urllib.request.Request(
-        Config.LLM_BASE_URL.rstrip('/') + '/chat/completions',
+        endpoint_url,
         data=body,
-        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {Config.LLM_API_KEY or "ollama"}'},
+        headers=headers,
         method='POST',
     )
     with urllib.request.urlopen(request, timeout=Config.LLM_TIMEOUT_SECONDS) as response:
