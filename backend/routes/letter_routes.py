@@ -1,5 +1,4 @@
 import os
-import random
 import secrets
 import datetime
 import json
@@ -56,9 +55,14 @@ def get_jenis(jenis_surat_id):
     )
 
 def generate_nomor_pengajuan() -> str:
+    """SRT-<tahun>-<5 digit acak>. Dicek dulu agar tidak bentrok dengan indeks unik
+    (tanpa cek, nomor kembar membuat pengajuan gagal 500)."""
     year = datetime.datetime.now().year
-    rand_id = random.randint(10000, 99999)
-    return f"SRT-{year}-{rand_id}"
+    for _ in range(20):
+        nomor = f"SRT-{year}-{secrets.randbelow(90000) + 10000}"
+        if not query_one("SELECT 1 FROM pengajuansurat WHERE nomor_pengajuan = %s", (nomor,)):
+            return nomor
+    raise RuntimeError('Gagal membuat nomor pengajuan unik')
 
 def generate_nomor_surat_resmi(jenis_kode: str) -> str:
     # Nomor urut berurutan per tahun (bukan acak) agar selalu unik.
@@ -643,6 +647,8 @@ def sign_digital(id: int):
     # 'diajukan' boleh langsung disetujui + disahkan dalam satu langkah.
     if app_data['status'] not in ('diajukan', 'disetujui'):
         return jsonify({'success': False, 'message': 'Pengajuan ini tidak dalam status yang dapat disahkan', 'data': None, 'error': 'INVALID_STATUS'}), 409
+    if app_data.get('metode_tanda_tangan') == 'basah':
+        return jsonify({'success': False, 'message': 'Pengajuan ini memilih tanda tangan basah, gunakan konfirmasi surat fisik', 'data': None, 'error': 'METHOD_MISMATCH'}), 409
 
     if Config.IS_PRODUCTION and not rt_user.get('tanda_tangan_url'):
         return jsonify({
@@ -732,6 +738,8 @@ def confirm_physical(id: int):
 
     if app_data['status'] not in ('diajukan', 'disetujui'):
         return jsonify({'success': False, 'message': 'Pengajuan ini tidak dalam status yang dapat dikonfirmasi', 'data': None, 'error': 'INVALID_STATUS'}), 409
+    if app_data.get('metode_tanda_tangan') == 'digital':
+        return jsonify({'success': False, 'message': 'Pengajuan ini memilih tanda tangan digital, sahkan dengan PIN', 'data': None, 'error': 'METHOD_MISMATCH'}), 409
 
     rt_user = request.current_user
     with transaction() as cur:

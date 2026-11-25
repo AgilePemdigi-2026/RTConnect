@@ -68,7 +68,7 @@ class BlangkoPreview extends StatelessWidget {
     Widget signature(List<String> top, String name) => Column(
           children: [
             for (final t in top) Text(t, style: body, textAlign: TextAlign.center),
-            const SizedBox(height: 28),
+            const SizedBox(height: 34), // ruang tanda tangan, sama tinggi kiri & kanan
             Text('( $name )', style: body, textAlign: TextAlign.center),
           ],
         );
@@ -137,7 +137,7 @@ class BlangkoPreview extends StatelessWidget {
               padding: const EdgeInsets.only(left: 14),
               child: Text('Demikian agar mendapat bantuan seperlunya', style: body),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -150,9 +150,9 @@ class BlangkoPreview extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 12),
             Center(child: Text('No. ………………………………', style: body)),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Center(child: signature(['Mengetahui :', 'Ketua RW. ${SuratIdentitas.rw}'], SuratIdentitas.ketuaRw)),
           ],
         ),

@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -84,7 +85,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
   bool _tanyaLanjut = false; // asisten menunggu jawaban lanjutan di chat
   List<String> _tujuanSaran = const [];
   List<String> _syarat = const [];
-  String? _lampiranPath;
+  PlatformFile? _lampiran;
   String? _lampiranNama;
 
   // Biodata tersimpan (dicek saat layar dibuka) -> peringatan bila belum lengkap
@@ -359,10 +360,11 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
+      withData: kIsWeb, // di web path file tidak tersedia, jadi isi file diambil langsung
     );
-    if (result != null && result.files.single.path != null) {
+    if (result != null && result.files.isNotEmpty) {
       setState(() {
-        _lampiranPath = result.files.single.path;
+        _lampiran = result.files.single;
         _lampiranNama = result.files.single.name;
       });
     }
@@ -403,7 +405,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
           jenisSuratId: _jenisSuratId!,
           keperluan: _keperluanController.text.trim(),
           metodeTandaTangan: _metodeTtd,
-          lampiranPath: _lampiranPath,
+          lampiran: _lampiran,
           aiMeta: _aiMeta,
           dataPemohon: {
             'pekerjaan': _pekerjaanController.text.trim(),
@@ -1194,7 +1196,7 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
                   tooltip: 'Hapus lampiran',
                   icon: const Icon(Icons.close_rounded, size: 18),
                   onPressed: () => setState(() {
-                    _lampiranPath = null;
+                    _lampiran = null;
                     _lampiranNama = null;
                   }),
                 ),

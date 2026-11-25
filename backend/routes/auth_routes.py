@@ -3,7 +3,7 @@ import re
 import io
 from flask import Blueprint, request, jsonify, send_file
 from config import Config
-from database.db import UniqueViolation, execute_returning
+from database.db import UniqueViolation, execute_returning, query_one
 from middleware.auth_middleware import generate_token, jwt_required
 from services.file_storage import read_bytes, store_upload
 from services.user_service import find_by_identity, nik_or_email_taken, update_user_profile, update_user_signature, update_user_avatar, update_user_fcm_token
@@ -317,10 +317,34 @@ def get_signature():
         download_name='signature.png'
     )
 
+def _can_read_file(user, storage_key):
+    """Cegah IDOR: warga hanya boleh membuka file miliknya sendiri (foto, tanda tangan,
+    lampiran pengajuannya). PDF surat resmi hanya lewat /letters/<id>/download."""
+    if storage_key.startswith('generated_letters/'):
+        return False
+    if user.get('role') in ('rt', 'admin'):
+        return True
+    owned = query_one(
+        """SELECT 1 FROM warga WHERE warga_id = %s AND (foto_profil = %s OR tanda_tangan_digital = %s)
+           UNION ALL
+           SELECT 1 FROM pengajuansurat WHERE warga_id = %s AND berkas_lampiran_url = %s
+           LIMIT 1""",
+        (user['user_id'], storage_key, storage_key, user['user_id'], storage_key),
+    )
+    return owned is not None
+
+
 @auth_bp.route('/files/<path:storage_key>', methods=['GET'])
 @jwt_required
 def get_file(storage_key):
     """API-007: Mengambil file privat berdasarkan storage key"""
+    if not _can_read_file(request.current_user, storage_key):
+        return jsonify({
+            'success': False,
+            'message': 'Anda tidak berhak membuka file ini',
+            'data': None,
+            'error': 'FORBIDDEN'
+        }), 403
     try:
         data = read_bytes(storage_key)
     except (ValueError, FileNotFoundError):
