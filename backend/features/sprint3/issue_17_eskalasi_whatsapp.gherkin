@@ -1,0 +1,59 @@
+@sprint3 @issue-17 @chatbot @whatsapp @escalation
+Feature: [Issue #17] Fitur Eskalasi Pertanyaan Chatbot ke WhatsApp Ketua RT
+  As a resident using the Tanya RT chatbot service
+  I want unanswered or out-of-scope administrative questions to be escalated to the RT head via WhatsApp
+  So that I can receive direct clarification and personalized assistance from the RT administrator
+
+  Background:
+    Given the RTConnect backend application is ready
+    And the resident "resident@example.test" and the RT head "rt@example.test" are logged in with password "LocalTestOnly#2026"
+    And the RT WhatsApp contact number is configured to "6281234567890"
+
+  Scenario: Pertanyaan di luar basis pengetahuan RT otomatis dieskalasi ke WhatsApp Ketua RT
+    When the resident sends a chatbot query "Kapan turnamen catur internasional diselenggarakan?"
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response field "data.is_escalated" should be true
+    And the response field "data.similarity_score" should be less than 0.70
+    And the response field "data.escalation_whatsapp_url" should contain "https://wa.me/6281234567890"
+    And the response field "data.escalation_whatsapp_url" should contain "text="
+
+  Scenario: Status sesi obrolan diperbarui menjadi dieskalasi di basis data
+    When the resident sends a chatbot query "Kapan turnamen catur internasional diselenggarakan?"
+    Then the response status code should be 200
+    And the chat session status in database should become "dieskalasi"
+
+  Scenario: Sistem membuat notifikasi eskalasi obrolan baru untuk Ketua RT
+    When the resident sends a chatbot query "Kapan turnamen catur internasional diselenggarakan?"
+    Then the response status code should be 200
+    And the RT head notification inbox should contain an unread "eskalasi_chat" notification
+
+  Scenario: Pertanyaan administrasi RT yang valid dijawab langsung tanpa eskalasi WhatsApp
+    When the resident sends a chatbot query "Berapa lama masa berlaku surat pengantar RT?"
+    Then the response status code should be 200
+    And the response JSON should indicate success
+    And the response field "data.is_escalated" should be false
+    And the response field "data.similarity_score" should be greater than or equal to 0.70
+    And the response field "data.escalation_whatsapp_url" should be null
+
+  Scenario: Warga dapat melihat daftar sesi obrolan dan riwayat pesan sesi yang dieskalasi
+    Given the resident has an escalated chat session with query "Kapan turnamen catur internasional diselenggarakan?"
+    When the resident retrieves the chatbot session history
+    Then the response status code should be 200
+    And the chatbot session list should include the escalated session
+    When the resident retrieves the messages for the escalated session
+    Then the response status code should be 200
+    And the session messages should include both "warga" and "sistem_ai" entries
+
+  Scenario: Warga dilarang mengirim pertanyaan menggunakan session ID milik warga lain
+    Given another resident has an active chatbot session
+    When the resident attempts to send a query to the other resident's chatbot session
+    Then the response status code should be 403
+    And the response JSON should indicate failure
+    And the response field "error" should be "FORBIDDEN"
+
+  Scenario: Pengiriman pertanyaan chatbot ditolak tanpa token autentikasi
+    When an unauthenticated user sends a chatbot query "Halo selamat pagi"
+    Then the response status code should be 401
+    And the response JSON should indicate failure
+    And the response field "error" should be "UNAUTHORIZED"
