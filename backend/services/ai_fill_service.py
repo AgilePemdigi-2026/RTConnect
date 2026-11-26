@@ -369,6 +369,18 @@ def _clean_ai_result(raw: dict, letter_types: list, story: str | None = None, la
                 continue
         out['fields'][field] = value
 
+    # Model kadang melewatkan jawaban singkat warga atas pertanyaan tujuan ("Kantor Kelurahan
+    # Kedurus"). Server menangkapnya sendiri agar pertanyaan yang sama tidak diulang.
+    if (story is not None and jenis and 'tujuan' not in out['fields']
+            and not any(d['kolom'] == 'tujuan' for d in ditolak)):
+        tujuan = guard.tujuan_from_answer(jenis['kode_surat'], latest)
+        alasan = guard.check_sop(jenis['kode_surat'], 'tujuan', tujuan) if tujuan else None
+        if alasan:
+            tolak('tujuan', alasan)
+        elif tujuan:
+            out['fields']['tujuan'] = tujuan
+            bukti['tujuan'] = guard._find_quote(story, guard._words(tujuan)[:1]) or tujuan
+
     # Di luar layanan / sekadar bertanya -> tidak ada isian yang dipakai
     if intent in ('pertanyaan_umum', 'di_luar_layanan') and not matched:
         out.update(jenis_surat=None, keperluan=None, metode_tanda_tangan=None, fields={}, bukti={}, ditolak=[])

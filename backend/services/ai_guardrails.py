@@ -241,6 +241,27 @@ def canonical_tujuan(kode, value, story):
     return None
 
 
+_INSTANSI_RE = re.compile(
+    r'\b(kantor|kelurahan|kecamatan|dinas|dispendukcapil|dukcapil|pol(sek|res|restabes|da|ri)|kepolisian|bank|'
+    r'pt|cv|koperasi|sekolah|sma|smk|smp|universitas|kampus|rumah\s+sakit|puskesmas|pengadilan|kua|kedutaan)\b',
+    re.IGNORECASE)
+
+
+def tujuan_from_answer(kode, latest):
+    """Jawaban singkat warga atas pertanyaan tujuan (mis. "Kantor Kelurahan Kedurus").
+    Dipakai bila model AI melewatkannya, supaya asisten tidak menanyakan hal yang sama berulang.
+    Hanya diambil bila jelas berupa nama instansi; selebihnya tetap ditanyakan."""
+    if not latest or not kode:
+        return None
+    resmi = canonical_tujuan(kode, None, latest)
+    if resmi:
+        return resmi
+    text = to_template_value(latest, 100)
+    if not text or len(text.split()) > 8 or looks_like_instruction(text) or not _INSTANSI_RE.search(text):
+        return None
+    return text
+
+
 def check_sop(kode, field, value):
     """Nilai melanggar SOP? -> alasan (str) atau None bila sesuai."""
     if field == 'tujuan' and kode:

@@ -140,3 +140,23 @@ Feature: [Sprint 2] Guardrail Asisten AI sebagai Drafter Dokumen
     Then the response status code should be 200
     And the response field "data.keperluan" should be "Persyaratan melamar pekerjaan di PT Maju Jaya"
     And the response field "data.bukti.keperluan" should contain "PT Maju Jaya"
+
+  # ------------------------------------------- jawaban lanjutan tidak diulang
+  Scenario: Jawaban singkat warga atas pertanyaan tujuan langsung dipakai
+    Given the AI model will answer with:
+      | field            | value                                |
+      | jenis_surat_kode | KTP                                  |
+      | keperluan        | Pengurusan KTP-el baru karena hilang |
+    When the resident continues the AI conversation with "Kantor Kelurahan Kedurus" after "Saya mau mengurus KTP baru karena hilang"
+    Then the response status code should be 200
+    And the response field "data.data_pemohon.tujuan" should be "Kantor Kelurahan Kedurus"
+    And the response field "data.pertanyaan" should be null
+
+  Scenario: Jawaban tujuan yang melanggar SOP tetap ditolak
+    Given the AI model will answer with:
+      | field            | value                  |
+      | jenis_surat_kode | KTP                    |
+      | keperluan        | Pengurusan KTP-el baru |
+    When the resident continues the AI conversation with "PT Maju Jaya" after "Saya mau mengurus KTP baru karena hilang"
+    Then the response field "data.data_pemohon.tujuan" should be null
+    And the response field "data.ditolak" should contain "SOP"
