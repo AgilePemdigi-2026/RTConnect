@@ -18,7 +18,9 @@ import datetime
 import json
 import logging
 import re
+import socket
 import time
+import urllib.error
 import urllib.request
 
 from config import Config
@@ -192,9 +194,39 @@ def _call_openai_compatible(message: str, letter_types: list) -> dict:
         headers=headers,
         method='POST',
     )
-    with urllib.request.urlopen(request, timeout=Config.LLM_TIMEOUT_SECONDS) as response:
-        payload = json.loads(response.read().decode('utf-8'))
-    return _parse_json_answer(payload['choices'][0]['message']['content'])
+    payload = _post_llm(request)
+    message_out = (payload.get('choices') or [{}])[0].get('message') or {}
+    content = (message_out.get('content') or '').strip()
+    if not content:
+        # Model "thinking" bisa menghabiskan jawaban di field reasoning tanpa isi akhir
+        raise ValueError(f'Server LLM ({Config.LLM_MODEL}) mengembalikan jawaban kosong')
+    return _parse_json_answer(content)
+
+
+def _post_llm(request) -> dict:
+    """Kirim ke server LLM kampus. Server dipakai bersama (antre / model sedang dimuat), jadi
+    kegagalan cepat (koneksi ditolak, 502/503) dicoba sekali lagi. Timeout TIDAK diulang agar
+    total waktu tetap di bawah batas Gunicorn."""
+    for attempt in (1, 2):
+        try:
+            with urllib.request.urlopen(request, timeout=Config.LLM_TIMEOUT_SECONDS) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode('utf-8', 'replace')[:200]
+            if error.code == 404 and 'model' in detail.lower():
+                raise RuntimeError(f'Model "{Config.LLM_MODEL}" tidak ada di server LLM. '
+                                   'Cek nama model dengan: python cek_llm.py') from error
+            if error.code not in (429, 500, 502, 503, 504) or attempt == 2:
+                raise RuntimeError(f'Server LLM menjawab HTTP {error.code}: {detail}') from error
+        except (TimeoutError, socket.timeout):
+            raise TimeoutError(f'Server LLM tidak menjawab dalam {Config.LLM_TIMEOUT_SECONDS:.0f} detik')
+        except urllib.error.URLError as error:
+            if isinstance(error.reason, (TimeoutError, socket.timeout)):
+                raise TimeoutError(f'Server LLM tidak menjawab dalam {Config.LLM_TIMEOUT_SECONDS:.0f} detik')
+            if attempt == 2:
+                raise
+        logger.warning('Server LLM sibuk / belum siap, mencoba lagi...')
+        time.sleep(2)
 
 
 def _call_gemini_api(message: str, letter_types: list) -> dict:
